@@ -1,6 +1,6 @@
 # Integritetspolicy – Sublime help tool
 
-*Senast uppdaterad: 2026-04-08*
+_Senast uppdaterad: 2026-04-08_
 
 ## Sammanfattning
 

@@ -19,7 +19,6 @@
     },
 
     "permissions": ["storage", "activeTab", "tabs"],
-    "host_permissions": ["https://*/*"],
 
     "icons": {
         "16": "icons/icon16.png",
