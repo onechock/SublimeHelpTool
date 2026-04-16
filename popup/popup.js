@@ -16,10 +16,10 @@
     { value: '#8b5cf6', label: 'Lila' },
   ];
 
-  const AZURE_ICON_SVG = `<svg width="14" height="14" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path fill="#0078d4" d="M6.73 2.17h4.54L6.57 16.16H2.04z"/><path fill="#50b5f5" d="M11.27 2.17l-4.7 13.99h10.37z"/></svg>`;
+  const AZURE_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path fill="#0078d4" d="M6.73 2.17h4.54L6.57 16.16H2.04z"/><path fill="#50b5f5" d="M11.27 2.17l-4.7 13.99h10.37z"/></svg>`;
 
-  const UMBRACO_ICON_SVG = `<img src="images/umbraco.png" width="22" height="22" alt="Umbraco">`;
-  const OPTIMIZELY_ICON_SVG = `<img src="images/optimizely.png" width="22" height="22" alt="Optimizely">`;
+  const UMBRACO_ICON_SVG = `<img src="images/umbraco.png" width="16" height="16" alt="Umbraco">`;
+  const OPTIMIZELY_ICON_SVG = `<img src="images/optimizely.png" width="16" height="16" alt="Optimizely">`;
 
   function getCmsIcon(cms) {
     if (cms === 'umbraco') return UMBRACO_ICON_SVG;
@@ -200,6 +200,23 @@
           ${isCurrent ? '' : '<span class="domain-arrow">→</span>'}`;
         link.insertBefore(dot, link.firstChild);
 
+        // CMS-inloggningsknapp
+        if (customer.cms === 'umbraco' || customer.cms === 'optimizely') {
+          const loginPath = customer.cmsLoginUrl || (customer.cms === 'umbraco' ? '/umbraco' : '/episerver/cms');
+          try {
+            const rawLoginUrl = new URL(loginPath, domain.baseUrl).href;
+            const safeLoginUrl = sanitizeUrl(rawLoginUrl);
+            if (safeLoginUrl) {
+              const loginBtn = document.createElement('button');
+              loginBtn.className = 'btn-cms-login';
+              loginBtn.title = `Logga in (${loginPath})`;
+              loginBtn.innerHTML = getCmsIcon(customer.cms);
+              loginBtn.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeLoginUrl }); });
+              link.appendChild(loginBtn);
+            }
+          } catch { /* ogiltig URL */ }
+        }
+
         if (!isCurrent) {
           const openLink = () => {
             const safeHref = sanitizeUrl(href);
@@ -248,14 +265,29 @@
     list.innerHTML = '';
     showSettingsList();
 
+    const searchEl = document.getElementById('customers-search');
+    const query = (searchEl?.value ?? '').trim().toLowerCase();
+    const isSearching = query.length > 0;
+
+    const allFiltered = isSearching
+      ? customers.filter(c => c.name.toLowerCase().includes(query))
+      : customers;
+
     if (customers.length === 0) {
       list.innerHTML = '<p class="muted">Inga kunder tillagda ännu.</p>';
       return;
     }
 
-    const favorites = customers.filter(c => c.favorite);
-    const others = customers.filter(c => !c.favorite).sort((a, b) => a.name.localeCompare(b.name, 'sv'));
-    const othersHidden = uiState.othersHidden ?? false;
+    if (isSearching && allFiltered.length === 0) {
+      list.innerHTML = '<p class="muted">Inga kunder matchar sökningen.</p>';
+      return;
+    }
+
+    const favorites = isSearching ? allFiltered.filter(c => c.favorite) : customers.filter(c => c.favorite);
+    const others = isSearching
+      ? allFiltered.filter(c => !c.favorite).sort((a, b) => a.name.localeCompare(b.name, 'sv'))
+      : customers.filter(c => !c.favorite).sort((a, b) => a.name.localeCompare(b.name, 'sv'));
+    const othersHidden = isSearching ? false : (uiState.othersHidden ?? false);
 
     // Drag-and-drop state för favoriter
     let dragSrc = null;
@@ -345,6 +377,24 @@
             <span class="expand-domain-url">${escHtml(domain.baseUrl.replace(/^https?:\/\//, ''))}</span>`;
           const safeDomainUrl = sanitizeUrl(domain.baseUrl);
           if (safeDomainUrl) link.addEventListener('click', () => chrome.tabs.create({ url: safeDomainUrl }));
+
+          // Lägg till inloggningslänk om CMS är valt
+          if (customer.cms === 'umbraco' || customer.cms === 'optimizely') {
+            const loginPath = customer.cmsLoginUrl || (customer.cms === 'umbraco' ? '/umbraco' : '/episerver/cms');
+            try {
+              const rawLoginUrl = new URL(loginPath, domain.baseUrl).href;
+              const safeLoginUrl = sanitizeUrl(rawLoginUrl);
+              if (safeLoginUrl) {
+                const loginBtn = document.createElement('button');
+                loginBtn.className = 'btn-cms-login';
+                loginBtn.title = `Logga in (${escHtml(loginPath)})`;
+                loginBtn.innerHTML = getCmsIcon(customer.cms);
+                loginBtn.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeLoginUrl }); });
+                link.appendChild(loginBtn);
+              }
+            } catch { /* ogiltig URL */ }
+          }
+
           expandPanel.appendChild(link);
         }
 
@@ -401,16 +451,16 @@
           row.appendChild(chevron);
           row.appendChild(starBtn);
           row.appendChild(nameSpan);
-          row.appendChild(cmsIconSpan);
           row.appendChild(domainCount);
+          row.appendChild(cmsIconSpan);
           row.appendChild(editBtn);
           row.appendChild(handle);
         } else {
           row.appendChild(chevron);
           row.appendChild(starBtn);
           row.appendChild(nameSpan);
-          row.appendChild(cmsIconSpan);
           row.appendChild(domainCount);
+          row.appendChild(cmsIconSpan);
           row.appendChild(editBtn);
         }
 
@@ -554,6 +604,49 @@
     cmsWrap.appendChild(cmsPickerBtn);
     cmsWrap.appendChild(cmsPopup);
 
+    // Anpassad CMS-inloggnings-URL
+    const cmsLoginRow = document.createElement('div');
+    cmsLoginRow.className = 'cms-login-url-row' + (customer.cms ? '' : ' hidden');
+    const cmsLoginIcon = document.createElement('span');
+    cmsLoginIcon.className = 'cms-login-url-icon';
+    cmsLoginIcon.innerHTML = getCmsIcon(customer.cms || 'optimizely');
+    const cmsLoginInput = document.createElement('input');
+    cmsLoginInput.type = 'text';
+    cmsLoginInput.value = customer.cmsLoginUrl || '';
+    cmsLoginInput.className = 'input-url';
+    cmsLoginInput.placeholder = 'Anpassad inloggningssökväg (t.ex. /util/login.aspx)';
+    cmsLoginInput.addEventListener('change', async () => {
+      const val = cmsLoginInput.value.trim();
+      customer.cmsLoginUrl = val || null;
+      cmsLoginInput.value = val;
+      await saveCustomers(customers);
+    });
+    cmsLoginRow.appendChild(cmsLoginIcon);
+    cmsLoginRow.appendChild(cmsLoginInput);
+
+    // Uppdatera synlighet och ikon när CMS byts
+    const origUpdateCmsPickerBtn = updateCmsPickerBtn;
+    function updateCmsPickerBtnAndRow() {
+      origUpdateCmsPickerBtn();
+      cmsLoginRow.classList.toggle('hidden', !customer.cms);
+      cmsLoginIcon.innerHTML = getCmsIcon(customer.cms || 'optimizely');
+    }
+    // Ersätt swatch-klick-lyssnare med uppdaterad funktion
+    cmsPopup.querySelectorAll('.cms-swatch').forEach((swatch, i) => {
+      const opt = cmsPopupOptions[i];
+      const old = swatch.cloneNode(true);
+      swatch.parentNode.replaceChild(old, swatch);
+      old.addEventListener('click', async e => {
+        e.stopPropagation();
+        customer.cms = opt.value;
+        cmsPopup.querySelectorAll('.cms-swatch').forEach(s => s.classList.remove('selected'));
+        old.classList.add('selected');
+        updateCmsPickerBtnAndRow();
+        cmsPopup.classList.add('hidden');
+        await saveCustomers(customers);
+      });
+    });
+
     // Azure-URL rad (alltid synlig i editläge)
     const azureRow = document.createElement('div');
     azureRow.className = 'azure-url-row';
@@ -576,6 +669,7 @@
     azureRow.appendChild(azureUrlInput);
     azureRow.appendChild(cmsWrap);
     card.appendChild(azureRow);
+    card.appendChild(cmsLoginRow);
 
     // Domänlista
     const domainList = document.createElement('div');
@@ -733,7 +827,7 @@
     colorBtn.className = 'color-btn';
     colorBtn.title = 'Välj färg';
     colorBtn.style.background = domain.color || COLORS[0].value;
-    colorBtn.innerHTML = `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round"><path d="M2 4l3 3 3-3"/></svg>`;
+    colorBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/><path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/></svg>`;
 
     const colorPopup = document.createElement('div');
     colorPopup.className = 'color-popup hidden';
@@ -883,6 +977,61 @@
     input.click();
   }
 
+  // ---- Onboarding (visas vid första start) ----
+  function showOnboarding(uiState, customers, tab, activateTab) {
+    const overlay = document.getElementById('onboarding-overlay');
+    const step1 = document.getElementById('onboarding-step-1');
+    const step2 = document.getElementById('onboarding-step-2');
+
+    overlay.classList.remove('hidden');
+
+    let selectedDevMode = false;
+
+    function goToStep2(isDev) {
+      selectedDevMode = isDev;
+      step1.classList.add('hidden');
+      step2.classList.remove('hidden');
+    }
+
+    async function finishOnboarding() {
+      overlay.classList.add('hidden');
+      uiState.devMode = selectedDevMode;
+      uiState.setupDone = true;
+      await saveUiState(uiState);
+      document.getElementById('dev-mode-checkbox').checked = selectedDevMode;
+      const updatedCustomers = await getCustomers();
+      renderSettings(updatedCustomers, uiState);
+      const updatedMatch = tab?.url ? findMatch(updatedCustomers, tab.url) : null;
+      renderHome(updatedMatch, tab?.url ?? '', uiState);
+    }
+
+    document.getElementById('onboarding-dev-yes').addEventListener('click', () => goToStep2(true));
+    document.getElementById('onboarding-dev-no').addEventListener('click', () => goToStep2(false));
+
+    document.getElementById('onboarding-import-btn').addEventListener('click', async () => {
+      await finishOnboarding();
+      const existing = await getCustomers();
+      importCustomers(existing, async (merged) => {
+        const ui = await getUiState();
+        renderSettings(merged, ui);
+        const updatedMatch = tab?.url ? findMatch(merged, tab.url) : null;
+        renderHome(updatedMatch, tab?.url ?? '', ui);
+        activateTab(
+          document.getElementById('tab-settings'),
+          document.getElementById('view-settings')
+        );
+      });
+    });
+
+    document.getElementById('onboarding-skip-btn').addEventListener('click', async () => {
+      await finishOnboarding();
+      activateTab(
+        document.getElementById('tab-settings'),
+        document.getElementById('view-settings')
+      );
+    });
+  }
+
   // ---- Flikar ----
   function setupTabs() {
     const btnHome = document.getElementById('tab-home');
@@ -956,6 +1105,11 @@
     // Inställningar
     renderSettings(customers, uiState);
 
+    // Onboarding vid första start (endast om ingen kund är importerad)
+    if (!uiState.setupDone && customers.length === 0) {
+      showOnboarding(uiState, customers, tab, activateTab);
+    }
+
     // Utvecklarläge-checkbox
     const devCb = document.getElementById('dev-mode-checkbox');
     devCb.checked = !!uiState.devMode;
@@ -1007,6 +1161,12 @@
     });
 
     // Lägg till kund
+    document.getElementById('customers-search').addEventListener('input', async () => {
+      const updated = await getCustomers();
+      const ui = await getUiState();
+      renderSettings(updated, ui);
+    });
+
     document.getElementById('add-customer-btn').addEventListener('click', async () => {
       const updated = await getCustomers();
       const newCustomer = { id: genId(), name: 'Ny kund', azureUrl: '', domains: [] };

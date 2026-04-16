@@ -10,6 +10,38 @@
 
 <body>
     <div id="app">
+
+        <!-- Onboarding-overlay (visas vid första start) -->
+        <div id="onboarding-overlay" class="onboarding-overlay hidden">
+            <div class="onboarding-card">
+                <div id="onboarding-step-1">
+                    <p class="onboarding-logo">Sublime help tool</p>
+                    <p class="onboarding-title">Välkommen!</p>
+                    <p class="onboarding-text">Är du utvecklare?</p>
+                    <p class="onboarding-hint">Utvecklarläge visar Azure-integrationer och domäner märkta som dev-only.
+                    </p>
+                    <div class="onboarding-actions">
+                        <button id="onboarding-dev-yes" class="btn-onboarding btn-onboarding-primary">Ja, jag är
+                            utvecklare</button>
+                        <button id="onboarding-dev-no" class="btn-onboarding btn-onboarding-secondary">Nej</button>
+                    </div>
+                </div>
+                <div id="onboarding-step-2" class="hidden">
+                    <p class="onboarding-logo">Sublime help tool</p>
+                    <p class="onboarding-title">Inga kunder än</p>
+                    <p class="onboarding-text">Det finns inga kunder i verktyget ännu.</p>
+                    <p class="onboarding-hint">Importera en konfigurationsfil för att komma igång snabbt, eller lägg
+                        till kunder manuellt.</p>
+                    <div class="onboarding-actions">
+                        <button id="onboarding-import-btn" class="btn-onboarding btn-onboarding-primary">Importera
+                            kunder</button>
+                        <button id="onboarding-skip-btn" class="btn-onboarding btn-onboarding-secondary">Lägg till
+                            manuellt</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <header>
             <span class="logo">Sublime help tool</span>
             <nav>
@@ -43,6 +75,14 @@
                     <span class="customers-title">Kunder</span>
                     <button id="add-customer-btn" class="btn-add-customer" title="Lägg till kund">+ Lägg till
                         kund</button>
+                </div>
+                <div class="customers-search-row">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round" class="customers-search-icon">
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input id="customers-search" type="text" placeholder="Sök kund..." autocomplete="off" />
                 </div>
                 <div id="customers-list"></div>
             </div>
@@ -80,7 +120,7 @@
             <div class="dev-mode-row">
                 <div class="dev-mode-left">
                     <span class="dev-mode-title">Utvecklarläge</span>
-                    <p class="dev-mode-hint">Visar Azure-integrationer</p>
+                    <p class="dev-mode-hint">Visar Azure-integrationer och utvecklardomäner</p>
                 </div>
                 <label class="toggle-switch">
                     <input type="checkbox" id="dev-mode-checkbox" />
