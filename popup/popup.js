@@ -890,6 +890,7 @@
       name: String(raw.name ?? '').trim(),
       azureUrl: sanitizeUrl(raw.azureUrl),
       ...((['umbraco', 'optimizely', 'episerver'].includes(raw.cms)) ? { cms: raw.cms === 'episerver' ? 'optimizely' : raw.cms } : {}),
+      ...(raw.cmsLoginUrl ? { cmsLoginUrl: String(raw.cmsLoginUrl).trim() } : {}),
       ...(raw.favorite ? { favorite: true } : {}),
       domains: (Array.isArray(raw.domains) ? raw.domains : []).map(d => ({
         id: genId(),
@@ -906,6 +907,7 @@
       name: c.name,
       ...(c.azureUrl ? { azureUrl: c.azureUrl } : {}),
       ...(c.cms ? { cms: c.cms } : {}),
+      ...(c.cmsLoginUrl ? { cmsLoginUrl: c.cmsLoginUrl } : {}),
       ...(c.favorite ? { favorite: true } : {}),
       domains: c.domains.map(d => {
         const entry = { label: d.label, url: d.baseUrl };
@@ -979,10 +981,14 @@
 
   // ---- Onboarding (visas vid första start) ----
   function showOnboarding(uiState, customers, tab, activateTab) {
+    const app = document.getElementById('app');
     const overlay = document.getElementById('onboarding-overlay');
     const step1 = document.getElementById('onboarding-step-1');
     const step2 = document.getElementById('onboarding-step-2');
 
+    app.classList.add('onboarding-active');
+    step1.classList.remove('hidden');
+    step2.classList.add('hidden');
     overlay.classList.remove('hidden');
 
     let selectedDevMode = false;
@@ -995,6 +1001,7 @@
 
     async function finishOnboarding() {
       overlay.classList.add('hidden');
+      app.classList.remove('onboarding-active');
       uiState.devMode = selectedDevMode;
       uiState.setupDone = true;
       await saveUiState(uiState);
@@ -1005,10 +1012,10 @@
       renderHome(updatedMatch, tab?.url ?? '', uiState);
     }
 
-    document.getElementById('onboarding-dev-yes').addEventListener('click', () => goToStep2(true));
-    document.getElementById('onboarding-dev-no').addEventListener('click', () => goToStep2(false));
+    document.getElementById('onboarding-dev-yes').onclick = () => goToStep2(true);
+    document.getElementById('onboarding-dev-no').onclick = () => goToStep2(false);
 
-    document.getElementById('onboarding-import-btn').addEventListener('click', async () => {
+    document.getElementById('onboarding-import-btn').onclick = async () => {
       await finishOnboarding();
       const existing = await getCustomers();
       importCustomers(existing, async (merged) => {
@@ -1021,15 +1028,15 @@
           document.getElementById('view-settings')
         );
       });
-    });
+    };
 
-    document.getElementById('onboarding-skip-btn').addEventListener('click', async () => {
+    document.getElementById('onboarding-skip-btn').onclick = async () => {
       await finishOnboarding();
       activateTab(
         document.getElementById('tab-settings'),
         document.getElementById('view-settings')
       );
-    });
+    };
   }
 
   // ---- Flikar ----
@@ -1088,14 +1095,25 @@
     return /^#[0-9a-f]{3,8}$/i.test(s) ? s : '';
   }
 
+  async function isExtensionInDevelopmentMode() {
+    if (!chrome.management?.getSelf) return false;
+    try {
+      const self = await chrome.management.getSelf();
+      return self.installType === 'development';
+    } catch {
+      return false;
+    }
+  }
+
   // ---- Init ----
   async function init() {
     const { cleanupAndCloseEdit, activateTab, btnHome, viewHome } = setupTabs();
 
-    const [customers, [tab], uiState] = await Promise.all([
+    const [customers, [tab], uiState, isDevelopmentInstall] = await Promise.all([
       getCustomers(),
       chrome.tabs.query({ active: true, currentWindow: true }),
       getUiState(),
+      isExtensionInDevelopmentMode(),
     ]);
 
     // Startsida
@@ -1108,18 +1126,47 @@
     // Onboarding vid första start (endast om ingen kund är importerad)
     if (!uiState.setupDone && customers.length === 0) {
       showOnboarding(uiState, customers, tab, activateTab);
+    } else if (!match) {
+      // Ingen matchning – gå direkt till Kunder-fliken
+      activateTab(document.getElementById('tab-settings'), document.getElementById('view-settings'));
     }
 
     // Utvecklarläge-checkbox
     const devCb = document.getElementById('dev-mode-checkbox');
-    devCb.checked = !!uiState.devMode;
+    const resetSection = document.getElementById('developer-reset-section');
+    const resetBtn = document.getElementById('reset-app-btn');
+
+    function updateDeveloperUi(ui) {
+      devCb.checked = !!ui.devMode;
+      resetSection.classList.toggle('hidden', !isDevelopmentInstall);
+    }
+
+    updateDeveloperUi(uiState);
+
     devCb.addEventListener('change', async () => {
       const ui = await getUiState();
       ui.devMode = devCb.checked;
       await saveUiState(ui);
       const updatedCustomers = await getCustomers();
-      renderHome(match, tab?.url ?? '', ui);
+      const updatedMatch = tab?.url ? findMatch(updatedCustomers, tab.url) : null;
+      renderHome(updatedMatch, tab?.url ?? '', ui);
       renderSettings(updatedCustomers, ui);
+      updateDeveloperUi(ui);
+    });
+
+    resetBtn.addEventListener('click', async () => {
+      const confirmed = confirm('Återställ appen? Detta rensar alla kunder och startar onboarding igen.');
+      if (!confirmed) return;
+
+      await chrome.storage.local.remove([STORAGE_KEY, UI_KEY]);
+
+      const clearedUi = {};
+      document.getElementById('customers-search').value = '';
+      renderSettings([], clearedUi);
+      renderHome(null, tab?.url ?? '', clearedUi);
+      updateDeveloperUi(clearedUi);
+      activateTab(document.getElementById('tab-home'), document.getElementById('view-home'));
+      showOnboarding(clearedUi, [], tab, activateTab);
     });
 
     // Tillbaka-knapp i edit-vy

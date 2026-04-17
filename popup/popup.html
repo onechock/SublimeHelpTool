@@ -1,136 +1,238 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="sv">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Sublime help tool</title>
+        <link rel="stylesheet" href="popup.css" />
+    </head>
 
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sublime help tool</title>
-    <link rel="stylesheet" href="popup.css" />
-</head>
-
-<body>
-    <div id="app">
-
-        <!-- Onboarding-overlay (visas vid första start) -->
-        <div id="onboarding-overlay" class="onboarding-overlay hidden">
-            <div class="onboarding-card">
-                <div id="onboarding-step-1">
-                    <p class="onboarding-logo">Sublime help tool</p>
-                    <p class="onboarding-title">Välkommen!</p>
-                    <p class="onboarding-text">Är du utvecklare?</p>
-                    <p class="onboarding-hint">Utvecklarläge visar Azure-integrationer och domäner märkta som dev-only.
-                    </p>
-                    <div class="onboarding-actions">
-                        <button id="onboarding-dev-yes" class="btn-onboarding btn-onboarding-primary">Ja, jag är
-                            utvecklare</button>
-                        <button id="onboarding-dev-no" class="btn-onboarding btn-onboarding-secondary">Nej</button>
+    <body>
+        <div id="app">
+            <!-- Onboarding-overlay (visas vid första start) -->
+            <div id="onboarding-overlay" class="onboarding-overlay hidden">
+                <div class="onboarding-header">
+                    <span class="logo">Sublime help tool</span>
+                </div>
+                <div class="onboarding-content">
+                    <div class="onboarding-card">
+                        <div id="onboarding-step-1">
+                            <p class="onboarding-title">Välkommen!</p>
+                            <p class="onboarding-text">Är du utvecklare?</p>
+                            <p class="onboarding-hint">
+                                Utvecklarläge visar Azure-integrationer och
+                                domäner märkta som dev-only.
+                            </p>
+                            <div class="onboarding-actions">
+                                <button
+                                    id="onboarding-dev-yes"
+                                    class="btn-onboarding btn-onboarding-primary"
+                                >
+                                    Ja, jag är utvecklare
+                                </button>
+                                <button
+                                    id="onboarding-dev-no"
+                                    class="btn-onboarding btn-onboarding-secondary"
+                                >
+                                    Nej
+                                </button>
+                            </div>
+                        </div>
+                        <div id="onboarding-step-2" class="hidden">
+                            <p class="onboarding-title">Inga kunder än</p>
+                            <p class="onboarding-text">
+                                Det finns inga kunder i verktyget ännu.
+                            </p>
+                            <p class="onboarding-hint">
+                                Importera en konfigurationsfil för att komma
+                                igång snabbt, eller lägg till kunder manuellt.
+                            </p>
+                            <div class="onboarding-actions">
+                                <button
+                                    id="onboarding-import-btn"
+                                    class="btn-onboarding btn-onboarding-primary"
+                                >
+                                    Importera kunder
+                                </button>
+                                <button
+                                    id="onboarding-skip-btn"
+                                    class="btn-onboarding btn-onboarding-secondary"
+                                >
+                                    Lägg till manuellt
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div id="onboarding-step-2" class="hidden">
-                    <p class="onboarding-logo">Sublime help tool</p>
-                    <p class="onboarding-title">Inga kunder än</p>
-                    <p class="onboarding-text">Det finns inga kunder i verktyget ännu.</p>
-                    <p class="onboarding-hint">Importera en konfigurationsfil för att komma igång snabbt, eller lägg
-                        till kunder manuellt.</p>
-                    <div class="onboarding-actions">
-                        <button id="onboarding-import-btn" class="btn-onboarding btn-onboarding-primary">Importera
-                            kunder</button>
-                        <button id="onboarding-skip-btn" class="btn-onboarding btn-onboarding-secondary">Lägg till
-                            manuellt</button>
+            </div>
+
+            <header>
+                <span class="logo">Sublime help tool</span>
+                <nav>
+                    <button
+                        id="tab-home"
+                        class="tab-btn active"
+                        title="Aktuell sida"
+                    >
+                        Sidor
+                    </button>
+                    <button id="tab-settings" class="tab-btn" title="Kunder">
+                        Kunder
+                    </button>
+                    <button
+                        id="tab-config"
+                        class="tab-btn tab-gear"
+                        title="Inställningar"
+                    >
+                        <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <circle cx="12" cy="12" r="3" />
+                            <path
+                                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                            />
+                        </svg>
+                    </button>
+                </nav>
+            </header>
+
+            <!-- Startsida: visar miljölänkar för aktuell domän -->
+            <div id="view-home" class="view">
+                <div id="match-result"></div>
+                <div id="no-match" class="hidden">
+                    <p class="muted">Ingen kund matchar den här sidan.</p>
+                    <p class="muted small">Lägg till domäner under Kunder.</p>
+                </div>
+            </div>
+
+            <!-- Kunder: hantera kunder och domäner -->
+            <div id="view-settings" class="view hidden">
+                <!-- Kompakt kundlista -->
+                <div id="settings-list-panel">
+                    <div class="customers-header">
+                        <div class="customers-search-row">
+                            <svg
+                                width="14"
+                                height="14"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                class="customers-search-icon"
+                            >
+                                <circle cx="11" cy="11" r="8" />
+                                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                            </svg>
+                            <input
+                                id="customers-search"
+                                type="text"
+                                placeholder="Sök kund..."
+                                autocomplete="off"
+                            />
+                        </div>
+                        <button
+                            id="add-customer-btn"
+                            class="btn-add-customer"
+                            title="Lägg till kund"
+                        >
+                            + Lägg till kund
+                        </button>
                     </div>
+                    <div id="customers-list"></div>
+                </div>
+                <!-- Edit-vy för enskild kund -->
+                <div id="customer-edit-panel" class="hidden">
+                    <button id="back-btn" class="btn-back">← Tillbaka</button>
+                    <div id="customer-edit-content"></div>
+                </div>
+            </div>
+
+            <!-- Inställningar: export/import -->
+            <div id="view-config" class="view hidden">
+                <p class="settings-section-title">Importera &amp; Exportera</p>
+                <p class="section-subtitle">
+                    Dela kundkonfiguration med kollegor.
+                </p>
+                <div class="config-actions">
+                    <button id="export-btn" class="btn-config-action">
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path
+                                d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                            />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        <span>Exportera kunder</span>
+                    </button>
+                    <button id="import-btn" class="btn-config-action">
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <path
+                                d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                            />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        <span>Importera kunder</span>
+                    </button>
+                </div>
+                <div class="dev-mode-row">
+                    <div class="dev-mode-left">
+                        <span class="dev-mode-title">Utvecklarläge</span>
+                        <p class="dev-mode-hint">
+                            Visar Azure-integrationer och utvecklardomäner
+                        </p>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="dev-mode-checkbox" />
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+                <div
+                    id="developer-reset-section"
+                    class="config-danger-box hidden"
+                >
+                    <div class="config-danger-copy">
+                        <span class="config-danger-title">Reset</span>
+                        <p class="config-danger-hint">
+                            Visas bara när tillägget körs i webbläsarens
+                            utvecklarläge. Rensar alla kunder och återställer
+                            onboarding.
+                        </p>
+                    </div>
+                    <button id="reset-app-btn" class="btn-config-danger">
+                        Återställ appen
+                    </button>
                 </div>
             </div>
         </div>
 
-        <header>
-            <span class="logo">Sublime help tool</span>
-            <nav>
-                <button id="tab-home" class="tab-btn active" title="Aktuell sida">Sidor</button>
-                <button id="tab-settings" class="tab-btn" title="Kunder">Kunder</button>
-                <button id="tab-config" class="tab-btn tab-gear" title="Inställningar">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="3" />
-                        <path
-                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                    </svg>
-                </button>
-            </nav>
-        </header>
-
-        <!-- Startsida: visar miljölänkar för aktuell domän -->
-        <div id="view-home" class="view">
-            <div id="match-result"></div>
-            <div id="no-match" class="hidden">
-                <p class="muted">Ingen kund matchar den här sidan.</p>
-                <p class="muted small">Lägg till domäner under Kunder.</p>
-            </div>
-        </div>
-
-        <!-- Kunder: hantera kunder och domäner -->
-        <div id="view-settings" class="view hidden">
-            <!-- Kompakt kundlista -->
-            <div id="settings-list-panel">
-                <div class="customers-header">
-                    <span class="customers-title">Kunder</span>
-                    <button id="add-customer-btn" class="btn-add-customer" title="Lägg till kund">+ Lägg till
-                        kund</button>
-                </div>
-                <div class="customers-search-row">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round" class="customers-search-icon">
-                        <circle cx="11" cy="11" r="8" />
-                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                    </svg>
-                    <input id="customers-search" type="text" placeholder="Sök kund..." autocomplete="off" />
-                </div>
-                <div id="customers-list"></div>
-            </div>
-            <!-- Edit-vy för enskild kund -->
-            <div id="customer-edit-panel" class="hidden">
-                <button id="back-btn" class="btn-back">← Tillbaka</button>
-                <div id="customer-edit-content"></div>
-            </div>
-        </div>
-
-        <!-- Inställningar: export/import -->
-        <div id="view-config" class="view hidden">
-            <p class="settings-section-title">Importera &amp; Exportera</p>
-            <p class="section-subtitle">Dela kundkonfiguration med kollegor.</p>
-            <div class="config-actions">
-                <button id="export-btn" class="btn-config-action">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                    <span>Exportera kunder</span>
-                </button>
-                <button id="import-btn" class="btn-config-action">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="7 10 12 15 17 10" />
-                        <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    <span>Importera kunder</span>
-                </button>
-            </div>
-            <div class="dev-mode-row">
-                <div class="dev-mode-left">
-                    <span class="dev-mode-title">Utvecklarläge</span>
-                    <p class="dev-mode-hint">Visar Azure-integrationer och utvecklardomäner</p>
-                </div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="dev-mode-checkbox" />
-                    <span class="toggle-track"></span>
-                </label>
-            </div>
-        </div>
-    </div>
-
-    <script src="popup.js"></script>
-</body>
-
+        <script src="popup.js"></script>
+    </body>
 </html>
