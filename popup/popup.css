@@ -207,7 +207,6 @@ nav {
 }
 
 .domain-link-unavailable {
-  opacity: 0.62;
   cursor: pointer;
 }
 
@@ -1309,6 +1308,77 @@ nav {
 }
 
 .btn-onboarding-secondary:hover {
+  border-color: #9ca3af;
+  color: #374151;
+  background: #f8fafc;
+}
+
+/* ---- Custom modal (ersätter alert/confirm) ---- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-backdrop.hidden {
+  display: none !important;
+}
+
+.modal-box {
+  background: white;
+  border-radius: 10px;
+  padding: 20px 18px 16px;
+  width: 320px;
+  max-width: calc(100% - 32px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-message {
+  font-size: 13px;
+  color: #1e1e2e;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.modal-btn {
+  padding: 7px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+}
+
+.modal-btn-primary {
+  background: #2c3956;
+  color: white;
+}
+
+.modal-btn-primary:hover {
+  background: #1a2340;
+}
+
+.modal-btn-secondary {
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid #dde2ea;
+}
+
+.modal-btn-secondary:hover {
   border-color: #9ca3af;
   color: #374151;
   background: #f8fafc;

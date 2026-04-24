@@ -197,7 +197,7 @@
             <span class="domain-label">${escHtml(domain.label)}</span>
             <span class="domain-url">${escHtml(href)}</span>
           </div>
-          ${isCurrent ? '' : '<span class="domain-arrow">→</span>'}`;
+          `;
         link.insertBefore(dot, link.firstChild);
 
         // CMS-inloggningsknapp
@@ -530,7 +530,7 @@
     removeCustomerBtn.className = 'btn-remove-customer';
     removeCustomerBtn.title = 'Ta bort kund';
     removeCustomerBtn.addEventListener('click', async () => {
-      if (!confirm(`Ta bort kunden "${customer.name}"?`)) return;
+      if (!await showConfirm(`Ta bort kunden "${customer.name}"?`, 'Ta bort')) return;
       const idx = customers.indexOf(customer);
       if (idx > -1) customers.splice(idx, 1);
       await saveCustomers(customers);
@@ -891,7 +891,6 @@
       azureUrl: sanitizeUrl(raw.azureUrl),
       ...((['umbraco', 'optimizely', 'episerver'].includes(raw.cms)) ? { cms: raw.cms === 'episerver' ? 'optimizely' : raw.cms } : {}),
       ...(raw.cmsLoginUrl ? { cmsLoginUrl: String(raw.cmsLoginUrl).trim() } : {}),
-      ...(raw.favorite ? { favorite: true } : {}),
       domains: (Array.isArray(raw.domains) ? raw.domains : []).map(d => ({
         id: genId(),
         label: String(d.label ?? '').trim(),
@@ -908,7 +907,6 @@
       ...(c.azureUrl ? { azureUrl: c.azureUrl } : {}),
       ...(c.cms ? { cms: c.cms } : {}),
       ...(c.cmsLoginUrl ? { cmsLoginUrl: c.cmsLoginUrl } : {}),
-      ...(c.favorite ? { favorite: true } : {}),
       domains: c.domains.map(d => {
         const entry = { label: d.label, url: d.baseUrl };
         entry.color = colorToExportName(d.color);
@@ -940,7 +938,7 @@
           const text = reader.result.replace(/^\uFEFF/, '');
           const parsed = JSON.parse(text);
           if (!parsed.version || !Array.isArray(parsed.customers)) {
-            alert('Ogiltig fil – förväntas en Sublime help tool-export.');
+            await showAlert('Ogiltig fil – förväntas en Sublime help tool-export.');
             return;
           }
           const incoming = parsed.customers.map(normalizeImportCustomer).filter(c => c.name);
@@ -948,12 +946,20 @@
 
           let replace = false;
           if (hasExisting) {
-            replace = confirm(
-              `Vill du ersätta hela kundlistan med innehållet från filen?\n\n` +
-              `OK = Rensa och importera (${incoming.length} kunder)\n` +
-              `Avbryt = Lägg till utan att ta bort befintliga`
+            const choice = await showModal(
+              `Filen innehåller ${incoming.length} kunder.\n\nVill du lägga till dem eller ersätta hela din nuvarande lista?`,
+              [
+                { label: 'Avbryt', primary: false, value: 'cancel' },
+                { label: 'Lägg till', primary: false, value: 'add' },
+                { label: 'Ersätt', primary: true, value: 'replace' },
+              ]
             );
+            if (choice === 'cancel') return;
+            replace = choice === 'replace';
           }
+
+          // Spara favoriter från befintlig lista för att återställa efter import
+          const favoriteNames = new Set(existingCustomers.filter(c => c.favorite).map(c => c.name.toLowerCase()));
 
           let merged;
           let addedCount;
@@ -967,13 +973,20 @@
             addedCount = toAdd.length;
           }
 
+          // Återställ favoriter för kunder som fortfarande finns
+          for (const c of merged) {
+            if (favoriteNames.has(c.name.toLowerCase())) {
+              c.favorite = true;
+            }
+          }
+
           await saveCustomers(merged);
           onDone(merged, addedCount, replace);
         } catch (e) {
-          alert('Kunde inte läsa filen. Kontrollera att det är en giltig JSON-fil.\n\nFel: ' + e.message);
+          await showAlert('Kunde inte läsa filen. Kontrollera att det är en giltig JSON-fil.\n\nFel: ' + e.message);
         }
       };
-      reader.onerror = () => alert('Kunde inte öppna filen.');
+      reader.onerror = async () => { await showAlert('Kunde inte öppna filen.'); };
       reader.readAsText(file, 'UTF-8');
     });
     input.click();
@@ -1074,6 +1087,39 @@
     return { cleanupAndCloseEdit, activateTab, btnHome, viewHome };
   }
 
+  // ---- Custom modal (ersätter alert/confirm) ----
+  function showModal(message, buttons) {
+    return new Promise(resolve => {
+      const backdrop = document.getElementById('custom-modal');
+      const msgEl = document.getElementById('modal-message');
+      const actionsEl = document.getElementById('modal-actions');
+      msgEl.textContent = message;
+      actionsEl.innerHTML = '';
+      for (const btn of buttons) {
+        const el = document.createElement('button');
+        el.className = 'modal-btn ' + (btn.primary ? 'modal-btn-primary' : 'modal-btn-secondary');
+        el.textContent = btn.label;
+        el.addEventListener('click', () => {
+          backdrop.classList.add('hidden');
+          resolve(btn.value);
+        });
+        actionsEl.appendChild(el);
+      }
+      backdrop.classList.remove('hidden');
+    });
+  }
+
+  function showAlert(message) {
+    return showModal(message, [{ label: 'OK', primary: true, value: undefined }]);
+  }
+
+  function showConfirm(message, okLabel = 'OK', cancelLabel = 'Avbryt') {
+    return showModal(message, [
+      { label: cancelLabel, primary: false, value: false },
+      { label: okLabel, primary: true, value: true },
+    ]);
+  }
+
   // ---- XSS-skydd ----
   function escHtml(str) {
     return String(str)
@@ -1155,7 +1201,7 @@
     });
 
     resetBtn.addEventListener('click', async () => {
-      const confirmed = confirm('Återställ appen? Detta rensar alla kunder och startar onboarding igen.');
+      const confirmed = await showConfirm('Återställ appen? Detta rensar alla kunder och startar onboarding igen.', 'Återställ');
       if (!confirmed) return;
 
       await chrome.storage.local.remove([STORAGE_KEY, UI_KEY]);
@@ -1187,7 +1233,7 @@
     document.getElementById('export-btn').addEventListener('click', async () => {
       const customers = await getCustomers();
       if (customers.length === 0) {
-        alert('Inga kunder att exportera.');
+        await showAlert('Inga kunder att exportera.');
         return;
       }
       exportCustomers(customers);
@@ -1200,9 +1246,9 @@
         const ui = await getUiState();
         renderSettings(merged, ui);
         if (replaced) {
-          alert(`Import klar! Listan ersattes med ${addedCount} kund${addedCount !== 1 ? 'er' : ''}.`);
+          await showAlert(`Import klar! Listan ersattes med ${addedCount} kund${addedCount !== 1 ? 'er' : ''}.`);
         } else {
-          alert(`Import klar! ${addedCount} ny${addedCount !== 1 ? 'a' : ''} kund${addedCount !== 1 ? 'er' : ''} lades till.`);
+          await showAlert(`Import klar! ${addedCount} ny${addedCount !== 1 ? 'a' : ''} kund${addedCount !== 1 ? 'er' : ''} lades till.`);
         }
       });
     });

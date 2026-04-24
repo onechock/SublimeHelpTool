@@ -53,15 +53,7 @@ async function updateIcon(tabId, tabUrl) {
     }
   }
 
-  try {
-    const [img16, img48] = await Promise.all([
-      getIconImageData(16, !matched),
-      getIconImageData(48, !matched),
-    ]);
-    chrome.action.setIcon({ tabId, imageData: { 16: img16, 48: img48 } });
-  } catch {
-    chrome.action.setIcon({ tabId, path: { 16: 'icons/icon16.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' } });
-  }
+  chrome.action.setIcon({ tabId, path: { 16: 'icons/icon16.png', 48: 'icons/icon48.png', 128: 'icons/icon128.png' } });
 
   if (matched && otherCount > 0) {
     chrome.action.setBadgeText({ tabId, text: String(otherCount) });
