@@ -1,8 +1,9 @@
 // popup.js – Sublime help tool
 // Hanterar kunddomäner och visar miljölänkar för aktuell sida.
 
+import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared/storage.js';
+
 (() => {
-  const STORAGE_KEY = 'sublimeHelp_customers';
   const UI_KEY = 'sublimeHelp_ui';
 
   const COLORS = [
@@ -18,8 +19,11 @@
 
   const AZURE_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path fill="#0078d4" d="M6.73 2.17h4.54L6.57 16.16H2.04z"/><path fill="#50b5f5" d="M11.27 2.17l-4.7 13.99h10.37z"/></svg>`;
 
+  const STORYBOOK_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF4785" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`;
+
   const UMBRACO_ICON_SVG = `<img src="images/umbraco.png" width="16" height="16" alt="Umbraco">`;
   const OPTIMIZELY_ICON_SVG = `<img src="images/optimizely.png" width="16" height="16" alt="Optimizely">`;
+  const GENERIC_LOGIN_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
 
   function getCmsIcon(cms) {
     if (cms === 'umbraco') return UMBRACO_ICON_SVG;
@@ -27,15 +31,15 @@
     return '';
   }
 
-  // ---- Datalagring ----
-  async function getCustomers() {
-    const r = await chrome.storage.local.get(STORAGE_KEY);
-    return r[STORAGE_KEY] ?? [];
+  // Ikon för inloggningsfältet: CMS-ikon om valt, annars en generisk låsikon
+  function getLoginIcon(cms) {
+    return getCmsIcon(cms) || GENERIC_LOGIN_ICON_SVG;
   }
 
-  async function saveCustomers(customers) {
-    await chrome.storage.local.set({ [STORAGE_KEY]: customers });
-  }
+  // ---- Datalagring ----
+  // Kunddata (getCustomers/saveCustomers) hanteras av shared/storage.js, som
+  // synkar via chrome.storage.sync så att samma person får sina kunder på
+  // alla sina Chrome-profiler/datorer.
 
   async function getUiState() {
     const r = await chrome.storage.local.get(UI_KEY);
@@ -44,10 +48,6 @@
 
   async function saveUiState(state) {
     await chrome.storage.local.set({ [UI_KEY]: state });
-  }
-
-  function genId() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2);
   }
 
   // ---- URL-hjälpfunktioner ----
@@ -156,6 +156,19 @@
         if (safeUrl) chrome.tabs.create({ url: safeUrl });
       });
       header.appendChild(azureLink);
+    }
+    if (customer.storybookUrl && uiState.devMode) {
+      const storybookLink = document.createElement('a');
+      storybookLink.href = '#';
+      storybookLink.className = 'btn-azure-header btn-storybook-header';
+      storybookLink.title = 'Öppna Storybook';
+      storybookLink.innerHTML = STORYBOOK_ICON_SVG;
+      storybookLink.addEventListener('click', e => {
+        e.preventDefault();
+        const safeUrl = sanitizeUrl(customer.storybookUrl);
+        if (safeUrl) chrome.tabs.create({ url: safeUrl });
+      });
+      header.appendChild(storybookLink);
     }
     result.appendChild(header);
 
@@ -363,6 +376,22 @@
               <span class="expand-domain-url">${escHtml(safeAzureUrl.replace(/^https?:\/\//, ''))}</span>`;
             azureRow.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeAzureUrl }); });
             expandPanel.appendChild(azureRow);
+          }
+        }
+
+        // Storybook-rad längst upp i expand-panelen
+        if (customer.storybookUrl && uiState.devMode) {
+          const safeStorybookUrl = sanitizeUrl(customer.storybookUrl);
+          if (safeStorybookUrl) {
+            const storybookRow = document.createElement('div');
+            storybookRow.className = 'expand-domain-link expand-azure-link expand-storybook-link';
+            storybookRow.title = safeStorybookUrl;
+            storybookRow.innerHTML = `
+              <span class="expand-azure-icon expand-storybook-icon">${STORYBOOK_ICON_SVG}</span>
+              <span class="expand-domain-label" style="color:#FF4785">Storybook</span>
+              <span class="expand-domain-url">${escHtml(safeStorybookUrl.replace(/^https?:\/\//, ''))}</span>`;
+            storybookRow.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeStorybookUrl }); });
+            expandPanel.appendChild(storybookRow);
           }
         }
 
@@ -604,12 +633,12 @@
     cmsWrap.appendChild(cmsPickerBtn);
     cmsWrap.appendChild(cmsPopup);
 
-    // Anpassad CMS-inloggnings-URL
+    // Anpassad inloggningssökväg (alltid synlig – funkar även utan valt CMS)
     const cmsLoginRow = document.createElement('div');
-    cmsLoginRow.className = 'cms-login-url-row' + (customer.cms ? '' : ' hidden');
+    cmsLoginRow.className = 'cms-login-url-row';
     const cmsLoginIcon = document.createElement('span');
     cmsLoginIcon.className = 'cms-login-url-icon';
-    cmsLoginIcon.innerHTML = getCmsIcon(customer.cms || 'optimizely');
+    cmsLoginIcon.innerHTML = getLoginIcon(customer.cms);
     const cmsLoginInput = document.createElement('input');
     cmsLoginInput.type = 'text';
     cmsLoginInput.value = customer.cmsLoginUrl || '';
@@ -623,13 +652,14 @@
     });
     cmsLoginRow.appendChild(cmsLoginIcon);
     cmsLoginRow.appendChild(cmsLoginInput);
+    cmsLoginRow.appendChild(cmsWrap);
+    card.appendChild(cmsLoginRow);
 
-    // Uppdatera synlighet och ikon när CMS byts
+    // Uppdatera ikon när CMS byts
     const origUpdateCmsPickerBtn = updateCmsPickerBtn;
     function updateCmsPickerBtnAndRow() {
       origUpdateCmsPickerBtn();
-      cmsLoginRow.classList.toggle('hidden', !customer.cms);
-      cmsLoginIcon.innerHTML = getCmsIcon(customer.cms || 'optimizely');
+      cmsLoginIcon.innerHTML = getLoginIcon(customer.cms);
     }
     // Ersätt swatch-klick-lyssnare med uppdaterad funktion
     cmsPopup.querySelectorAll('.cms-swatch').forEach((swatch, i) => {
@@ -667,9 +697,29 @@
     });
     azureRow.appendChild(azureIconSpan);
     azureRow.appendChild(azureUrlInput);
-    azureRow.appendChild(cmsWrap);
     card.appendChild(azureRow);
-    card.appendChild(cmsLoginRow);
+
+    // Storybook-URL rad (alltid synlig i editläge)
+    const storybookRow = document.createElement('div');
+    storybookRow.className = 'azure-url-row storybook-url-row';
+    const storybookIconSpan = document.createElement('span');
+    storybookIconSpan.className = 'azure-url-icon storybook-url-icon';
+    storybookIconSpan.innerHTML = STORYBOOK_ICON_SVG;
+    const storybookUrlInput = document.createElement('input');
+    storybookUrlInput.type = 'text';
+    storybookUrlInput.value = customer.storybookUrl || '';
+    storybookUrlInput.className = 'input-url';
+    storybookUrlInput.placeholder = 'Storybook-URL (t.ex. https://storybook.example.com)';
+    storybookUrlInput.addEventListener('change', async () => {
+      let val = storybookUrlInput.value.trim();
+      if (val && !/^https?:\/\//i.test(val)) val = 'https://' + val;
+      customer.storybookUrl = val;
+      storybookUrlInput.value = val;
+      await saveCustomers(customers);
+    });
+    storybookRow.appendChild(storybookIconSpan);
+    storybookRow.appendChild(storybookUrlInput);
+    card.appendChild(storybookRow);
 
     // Domänlista
     const domainList = document.createElement('div');
@@ -889,6 +939,7 @@
       id: genId(),
       name: String(raw.name ?? '').trim(),
       azureUrl: sanitizeUrl(raw.azureUrl),
+      storybookUrl: sanitizeUrl(raw.storybookUrl),
       ...((['umbraco', 'optimizely', 'episerver'].includes(raw.cms)) ? { cms: raw.cms === 'episerver' ? 'optimizely' : raw.cms } : {}),
       ...(raw.cmsLoginUrl ? { cmsLoginUrl: String(raw.cmsLoginUrl).trim() } : {}),
       domains: (Array.isArray(raw.domains) ? raw.domains : []).map(d => ({
@@ -905,6 +956,7 @@
     const exportData = customers.map(c => ({
       name: c.name,
       ...(c.azureUrl ? { azureUrl: c.azureUrl } : {}),
+      ...(c.storybookUrl ? { storybookUrl: c.storybookUrl } : {}),
       ...(c.cms ? { cms: c.cms } : {}),
       ...(c.cmsLoginUrl ? { cmsLoginUrl: c.cmsLoginUrl } : {}),
       domains: c.domains.map(d => {
@@ -1151,6 +1203,67 @@
     }
   }
 
+  // ---- Docka till höger / lossa till popup ----
+  const PANEL_PATH = 'popup/popup.html?mode=panel';
+  const isPanelMode = new URLSearchParams(location.search).get('mode') === 'panel';
+  if (isPanelMode) document.documentElement.classList.add('panel-mode');
+
+  // ---- Mörkt läge ----
+  // 'light' / 'dark' = uttryckligt val, annars följer vi systemets tema.
+  function applyTheme(theme) {
+    if (theme === 'light' || theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', theme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+  }
+
+  function setupThemeSelect(uiState) {
+    const select = document.getElementById('theme-select');
+    select.value = uiState.theme === 'light' || uiState.theme === 'dark' ? uiState.theme : 'auto';
+    select.addEventListener('change', async () => {
+      const ui = await getUiState();
+      ui.theme = select.value === 'auto' ? undefined : select.value;
+      applyTheme(ui.theme);
+      await saveUiState(ui);
+    });
+  }
+
+  // Sätts så tidigt som möjligt (utan att vänta på övrig init) för att undvika
+  // att popupen hinner blinka till i fel tema.
+  getUiState().then((ui) => applyTheme(ui.theme));
+
+  function setupDockToggle(tab) {
+    const dockBtn = document.getElementById('tab-dock');
+    if (!dockBtn || !chrome.sidePanel || !tab?.id) {
+      if (dockBtn) dockBtn.classList.add('hidden');
+      return;
+    }
+
+    if (isPanelMode) {
+      dockBtn.classList.add('active');
+      dockBtn.title = 'Lossa till popup';
+    } else {
+      dockBtn.title = 'Docka till höger';
+    }
+
+    dockBtn.addEventListener('click', async () => {
+      try {
+        if (isPanelMode) {
+          // Stängningen sker i service worker – panelens egen kontext dör så
+          // fort den stängs och hinner annars inte återaktivera sig själv.
+          chrome.runtime.sendMessage({ type: 'closeSidePanel', tabId: tab.id });
+        } else {
+          await chrome.sidePanel.setOptions({ tabId: tab.id, path: PANEL_PATH, enabled: true });
+          await chrome.sidePanel.open({ tabId: tab.id });
+          window.close();
+        }
+      } catch (err) {
+        console.error('Kunde inte växla docknings-läge:', err);
+      }
+    });
+  }
+
   // ---- Init ----
   async function init() {
     const { cleanupAndCloseEdit, activateTab, btnHome, viewHome } = setupTabs();
@@ -1161,6 +1274,9 @@
       getUiState(),
       isExtensionInDevelopmentMode(),
     ]);
+
+    setupDockToggle(tab);
+    setupThemeSelect(uiState);
 
     // Startsida
     const match = tab?.url ? findMatch(customers, tab.url) : null;
@@ -1204,7 +1320,8 @@
       const confirmed = await showConfirm('Återställ appen? Detta rensar alla kunder och startar onboarding igen.', 'Återställ');
       if (!confirmed) return;
 
-      await chrome.storage.local.remove([STORAGE_KEY, UI_KEY]);
+      await clearAllCustomers();
+      await chrome.storage.local.remove(UI_KEY);
 
       const clearedUi = {};
       document.getElementById('customers-search').value = '';
