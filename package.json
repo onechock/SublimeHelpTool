@@ -1,0 +1,20 @@
+{
+  "name": "sublime-help-tool",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome-tillägg för snabb åtkomst till Sublime-kunders domäner och miljöer.",
+  "scripts": {
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "build": "node scripts/build.js",
+    "release:patch": "node scripts/build.js --bump=patch",
+    "release:minor": "node scripts/build.js --bump=minor",
+    "release:major": "node scripts/build.js --bump=major"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1",
+    "eslint": "^9.39.0",
+    "globals": "^17.12.0"
+  }
+}

@@ -1,2 +1,5 @@
 # Tool files - internal use only
 - toolfiles/
+
+node_modules/
+dist/
