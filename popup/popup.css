@@ -1579,3 +1579,170 @@ html.panel-mode .logo {
   color: var(--color-text-primary);
   background: var(--color-bg-surface-alt);
 }
+
+/* ---- Hub: status, lås och skrivskyddade rader ---- */
+.hub-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  background: var(--color-current-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.btn-hub-login {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 5px;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.btn-hub-login:hover {
+  background: var(--color-brand-hover);
+}
+
+.btn-azure-header + .btn-azure-header {
+  margin-left: 6px;
+}
+
+.btn-clickup-header:hover {
+  border-color: #7b68ee;
+}
+
+.btn-figma-header:hover {
+  border-color: #f24e1e;
+}
+
+.card-customer-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-heading);
+}
+
+.hub-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-input);
+}
+
+.hub-lock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  color: var(--color-text-muted);
+}
+
+.domain-edit-row.readonly input {
+  color: var(--color-text-secondary);
+  background: var(--color-bg-surface-alt);
+  cursor: default;
+}
+
+.color-btn-static {
+  display: inline-block;
+  flex-shrink: 0;
+  cursor: default;
+  opacity: 0.85;
+}
+
+/* ---- Applikationer ---- */
+.app-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+:root {
+  --color-app-bg: #dbe8f1;
+  --color-app-text: #1f4a68;
+  --color-app-accent: #7aa7c4;
+  --color-app-line: #5d87a5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-app-bg: #2e4356;
+    --color-app-text: #bcd6ea;
+    --color-app-accent: #5b8fb0;
+    --color-app-line: #3a566c;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-app-bg: #2e4356;
+  --color-app-text: #bcd6ea;
+  --color-app-accent: #5b8fb0;
+  --color-app-line: #3a566c;
+}
+
+/* Rubrikband som markerar att en ny applikation börjar */
+.app-section {
+  margin-top: 16px;
+}
+
+.app-section:first-of-type {
+  margin-top: 8px;
+}
+
+.app-section-title,
+.expand-app-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 7px 10px;
+  border-left: 3px solid var(--color-app-accent);
+  border-radius: 6px;
+  background: var(--color-app-bg);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-app-text);
+}
+
+.expand-app-header {
+  margin: 10px 0 0;
+  border-radius: 0;
+}
+
+.expand-app-header:first-child {
+  margin-top: 0;
+}
+
+/* Tunn linje längst ner på varje applikation */
+.expand-app {
+  border-bottom: 1px solid var(--color-app-line);
+}
+
+.expand-app:last-child {
+  border-bottom: none;
+}
+
+.app-section {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-app-line);
+}
+
+.app-section:last-of-type {
+  border-bottom: none;
+}
+
+.expand-app + .expand-app {
+  margin-top: 8px;
+}

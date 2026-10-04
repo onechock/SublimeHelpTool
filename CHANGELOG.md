@@ -1,5 +1,32 @@
 # Changelog
 
+## Ej incheckat – Kunder och länkar från Hub (branch `wip/api-based-customers`)
+
+**Obs – breaking change: rekommenderas som `release:major` (3.0.0).** Kunderna hämtas nu från Sublime Hub och kan inte längre läggas till, ändras eller tas bort lokalt. Alla tidigare lokala kunder och domäner rensas en gång vid uppdateringen (ny kula, ingen migrering). Egna domäner som lagts in tidigare försvinner alltså och måste läggas in igen som egna URL:er på respektive kund.
+
+**Hämtning från Hub (`shared/hub.js`, ny fil)**
+- `GET <hub>/api/v1/browser-links` med `credentials: 'include'` – använder medarbetarens vanliga Hub-inloggning (cookien `__Host-SublimeHub`). Status sparas som `ok`, `needsLogin` (401 eller omdirigering till inloggning), `forbidden` (403, saknar rollen Hub.Reader), `offline` eller `error`. Vid fel används den senast sparade listan.
+- Adress: `https://hub.sublime.se`, utom när tillägget körs lokalt (installerat som "unpacked"): då används `https://hub.dev.sublime.se`, eller en egen adress om en sådan sparats under Inställningar (t.ex. Aspire-adressen på localhost). Dev-adressen är en valfri behörighet; popupen visar en "Tillåt"-knapp första gången.
+- Service workern hämtar vid installation/start och var 30:e minut (`chrome.alarms`); popupen hämtar också när den öppnas.
+- `manifest.json`: nya behörigheter `alarms` och `host_permissions` för `https://hub.sublime.se/*`, samt `optional_host_permissions` för hub.dev.sublime.se och localhost. **Chrome ber användarna godkänna den nya behörigheten vid uppdatering.**
+
+**Datamodell (`shared/storage.js`, omskriven)**
+- Hubbens kunder cachas i `chrome.storage.local` och identifieras med `code`. Varje kund har `applications[]` (sajter) med egen `slug` (unikt id), `name`, `cms`, länkar och `domains[]`. Länkar som saknas på applikationen ärvs från kunden. En äldre post med `domains` direkt på kunden tolkas som en enda applikation. Poster utan `code`/`name`, och applikationer utan `slug`, hoppas över.
+- Egna URL:er (en post `urls_<slug>` per applikation) och favoriter (i ordning) ligger kvar i `chrome.storage.sync`. `getCustomers()` slår ihop lagren; varje domän har `source: 'hub' | 'local'`.
+- Borttaget: egna kunder, `saveCustomers`, `clearAllCustomers`, migreringen från den gamla lokala nyckeln.
+- Ny `shared/colors.js` med färgpaletten; Hub och exportfiler anger färg som siffra 1–8.
+
+**Popup**
+- Hubbens kunder och domäner är skrivskyddade (lås). På varje applikation går det att lägga till, ändra, sortera och ta bort egna URL:er. Hemvyn visar den applikation vars domän matchar fliken, med dess miljöer; kundlistan och detaljvyn grupperar per applikation, och sökningen träffar både kund- och applikationsnamn. "Lägg till kund", "Ta bort kund" och redigering av namn/CMS/Azure/Storybook är borttagna.
+- Statusbanner: "Logga in i Hub" vid 401, behörighetsmeddelande vid 403, och "Visar sparad lista" vid offline.
+- Nya länkar från Hub: ClickUp och Figma (utvecklarläge, som Azure/Storybook) samt impersonate (knapp per miljö; en sökväg som börjar med `/` läggs på miljön man står i).
+- Egna URL:er kan sorteras fritt bland Hubs låsta domäner (dra i handtaget; Hubs rader går att flytta men inte ändra eller ta bort). Ordningen sparas per applikation (`order_<slug>` i `chrome.storage.sync`) och gäller överallt: hemvyn, listan och omnibox. Nya domäner från Hub hamnar sist.
+- Applikationsrubriker är nu band med blågrå bakgrund och accentkant (nya färgvariabler `--color-app-*`, med ljust och mörkt tema), och en tunn linje längst ner på varje applikation, så att det syns tydligt var en ny börjar i både listan och detaljvyn.
+- Sidopanelen följer med aktiv flik: den uppdateras när man byter flik eller navigerar (`tabs.onActivated`/`onUpdated`), och hittar aktiv flik via senast fokuserade fönstret i stället för "nuvarande fönster", som inte fungerar som i en popup.
+- Onboarding: steg 2 är nu "Logga in i Hub".
+- Export exporterar bara egna URL:er. Import läser antingen en sådan export, eller en Hub-fil som låst reservlista som används tills Hub kan nås igen.
+- Omnibox-id är nu `<code>|<slug>|<domän-id>`, och sökningen träffar både kund- och applikationsnamn.
+
 ## Ej incheckat
 
 **Nytt: byggverktyg för release**

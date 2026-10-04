@@ -1,29 +1,35 @@
 // popup.js – Sublime help tool
-// Hanterar kunddomäner och visar miljölänkar för aktuell sida.
+// Visar kunder och miljölänkar från Hub, och låter användaren lägga till egna
+// URL:er på kunderna.
 
-import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared/storage.js';
+import {
+  getCustomers, saveLocalDomains, setFavorite, setFavoriteOrder, genId,
+  getHubCache, getHubStatus, setHubCache, exportLocalUrls, importLocalUrls,
+  clearLocalData, HUB_CACHE_KEY, HUB_STATUS_KEY,
+} from '../shared/storage.js';
+import {
+  refreshHub, openHubLogin, getHubUrlOverride, setHubUrlOverride, getHubBaseUrl,
+  hasHubPermission, hubOriginPattern,
+} from '../shared/hub.js';
+import { COLORS, colorToNumber } from '../shared/colors.js';
 
 (() => {
   const UI_KEY = 'sublimeHelp_ui';
-
-  const COLORS = [
-    { value: '#2c3956', label: 'Sublime' },
-    { value: '#3b82f6', label: 'Blå' },
-    { value: '#22c55e', label: 'Grön' },
-    { value: '#f59e0b', label: 'Gul' },
-    { value: '#ef4444', label: 'Röd' },
-    { value: '#ec4899', label: 'Rosa' },
-    { value: '#14b8a6', label: 'Turkos' },
-    { value: '#8b5cf6', label: 'Lila' },
-  ];
 
   const AZURE_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path fill="#0078d4" d="M6.73 2.17h4.54L6.57 16.16H2.04z"/><path fill="#50b5f5" d="M11.27 2.17l-4.7 13.99h10.37z"/></svg>`;
 
   const STORYBOOK_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF4785" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`;
 
+  const CLICKUP_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#7b68ee" d="M3 17.2l3.1-2.4c1.6 2.1 3.3 3.1 5.4 3.1s3.8-1 5.4-3.1l3.1 2.4C17.7 20 15.1 21.5 11.5 21.5S5.3 20 3 17.2z"/><path fill="#49ccf9" d="M11.5 6.9l-5.4 4.7-2.5-2.9L11.5 2l7.9 6.7-2.5 2.9z"/></svg>`;
+
+  const FIGMA_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#f24e1e" d="M8 2h4v6H8a3 3 0 0 1 0-6z"/><path fill="#ff7262" d="M12 2h4a3 3 0 0 1 0 6h-4z"/><path fill="#a259ff" d="M8 8h4v6H8a3 3 0 0 1 0-6z"/><circle fill="#1abcfe" cx="15" cy="11" r="3"/><path fill="#0acf83" d="M8 14h4v3a3 3 0 1 1-4-2.8z"/></svg>`;
+
+  const IMPERSONATE_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+
+  const LOCK_ICON_SVG = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
+
   const UMBRACO_ICON_SVG = `<img src="images/umbraco.png" width="16" height="16" alt="Umbraco">`;
   const OPTIMIZELY_ICON_SVG = `<img src="images/optimizely.png" width="16" height="16" alt="Optimizely">`;
-  const GENERIC_LOGIN_ICON_SVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
 
   function getCmsIcon(cms) {
     if (cms === 'umbraco') return UMBRACO_ICON_SVG;
@@ -31,14 +37,50 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     return '';
   }
 
-  // Ikon för inloggningsfältet: CMS-ikon om valt, annars en generisk låsikon
-  function getLoginIcon(cms) {
-    return getCmsIcon(cms) || GENERIC_LOGIN_ICON_SVG;
+  // Länkar på kundnivå som visas i utvecklarläge (ikon i hemvyn, rad i listan)
+  const EXTERNAL_LINKS = [
+    { field: 'azureUrl', title: 'Öppna Azure-portalen', label: 'Azure', color: '#0078d4', icon: AZURE_ICON_SVG, cls: '' },
+    { field: 'storybookUrl', title: 'Öppna Storybook', label: 'Storybook', color: '#FF4785', icon: STORYBOOK_ICON_SVG, cls: 'btn-storybook-header' },
+    { field: 'clickUpUrl', title: 'Öppna ClickUp', label: 'ClickUp', color: '#7b68ee', icon: CLICKUP_ICON_SVG, cls: 'btn-clickup-header' },
+    { field: 'figmaUrl', title: 'Öppna Figma', label: 'Figma', color: '#f24e1e', icon: FIGMA_ICON_SVG, cls: 'btn-figma-header' },
+  ];
+
+  // En sökväg (börjar med /) läggs på miljön man står i, annars används
+  // adressen som den är.
+  function resolveLink(pathOrUrl, baseUrl) {
+    const v = String(pathOrUrl ?? '').trim();
+    if (!v) return '';
+    try { return sanitizeUrl(v.startsWith('/') ? new URL(v, baseUrl).href : v); } catch { return ''; }
+  }
+
+  // CMS-inloggning och impersonate som knappar på en domänrad
+  function appendLoginButtons(link, app, domain) {
+    if (app.cms === 'umbraco' || app.cms === 'optimizely') {
+      const loginPath = app.cmsLoginUrl || (app.cms === 'umbraco' ? '/umbraco' : '/episerver/cms');
+      const loginUrl = resolveLink(loginPath.startsWith('/') ? loginPath : '/' + loginPath, domain.baseUrl);
+      if (loginUrl) {
+        const loginBtn = document.createElement('button');
+        loginBtn.className = 'btn-cms-login';
+        loginBtn.title = `Logga in (${loginPath})`;
+        loginBtn.innerHTML = getCmsIcon(app.cms);
+        loginBtn.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: loginUrl }); });
+        link.appendChild(loginBtn);
+      }
+    }
+    const impersonateUrl = resolveLink(app.impersonateUrl, domain.baseUrl);
+    if (impersonateUrl) {
+      const impBtn = document.createElement('button');
+      impBtn.className = 'btn-cms-login btn-impersonate';
+      impBtn.title = 'Impersonate';
+      impBtn.innerHTML = IMPERSONATE_ICON_SVG;
+      impBtn.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: impersonateUrl }); });
+      link.appendChild(impBtn);
+    }
   }
 
   // ---- Datalagring ----
-  // Kunddata (getCustomers/saveCustomers) hanteras av shared/storage.js, som
-  // synkar via chrome.storage.sync så att samma person får sina kunder på
+  // Kunderna kommer från Hub (cachas av shared/storage.js). Egna URL:er och
+  // favoriter synkas via chrome.storage.sync så att samma person får dem på
   // alla sina Chrome-profiler/datorer.
 
   async function getUiState() {
@@ -67,15 +109,17 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     }
   }
 
-  // Hittar vilken kund och domän som matchar nuvarande flik
+  // Hittar vilken kund, applikation och domän som matchar nuvarande flik
   function findMatch(customers, tabUrl) {
     const tabHost = getHostname(tabUrl);
     if (!tabHost) return null;
 
     for (const customer of customers) {
-      for (const domain of customer.domains) {
-        if (getHostname(domain.baseUrl) === tabHost) {
-          return { customer, matchedDomain: domain };
+      for (const application of customer.applications) {
+        for (const domain of application.domains) {
+          if (getHostname(domain.baseUrl) === tabHost) {
+            return { customer, application, matchedDomain: domain };
+          }
         }
       }
     }
@@ -133,42 +177,35 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     }
     noMatch.classList.add('hidden');
 
-    const { customer, matchedDomain } = match;
+    const { customer, application, matchedDomain } = match;
 
-    // Kundnamn + badge för aktuell miljö
+    // Kund / applikation + badge för aktuell miljö. Applikationsnamnet visas
+    // bara när det skiljer sig från kundnamnet.
     const header = document.createElement('div');
     header.className = 'customer-header';
     const badgeColor = sanitizeColor(matchedDomain.color) || '#4b6584';
-    const homeCmsIcon = getCmsIcon(customer.cms);
+    const homeCmsIcon = getCmsIcon(application.cms);
+    const showAppName = application.name !== customer.name;
     header.innerHTML = `
       <span class="customer-name">${escHtml(customer.name)}</span>
-      ${homeCmsIcon ? `<span class="customer-cms-icon" title="${customer.cms === 'umbraco' ? 'Umbraco' : 'Optimizely'}">${homeCmsIcon}</span>` : ''}
+      ${showAppName ? `<span class="app-sub" title="${escHtml(application.name)}">${escHtml(application.name)}</span>` : ''}
+      ${homeCmsIcon ? `<span class="customer-cms-icon" title="${application.cms === 'umbraco' ? 'Umbraco' : 'Optimizely'}">${homeCmsIcon}</span>` : ''}
       <span class="badge" style="background:${badgeColor};color:white">${escHtml(matchedDomain.label)}</span>`;
-    if (customer.azureUrl && uiState.devMode) {
-      const azureLink = document.createElement('a');
-      azureLink.href = '#';
-      azureLink.className = 'btn-azure-header';
-      azureLink.title = 'Öppna Azure-portalen';
-      azureLink.innerHTML = AZURE_ICON_SVG;
-      azureLink.addEventListener('click', e => {
-        e.preventDefault();
-        const safeUrl = sanitizeUrl(customer.azureUrl);
-        if (safeUrl) chrome.tabs.create({ url: safeUrl });
-      });
-      header.appendChild(azureLink);
-    }
-    if (customer.storybookUrl && uiState.devMode) {
-      const storybookLink = document.createElement('a');
-      storybookLink.href = '#';
-      storybookLink.className = 'btn-azure-header btn-storybook-header';
-      storybookLink.title = 'Öppna Storybook';
-      storybookLink.innerHTML = STORYBOOK_ICON_SVG;
-      storybookLink.addEventListener('click', e => {
-        e.preventDefault();
-        const safeUrl = sanitizeUrl(customer.storybookUrl);
-        if (safeUrl) chrome.tabs.create({ url: safeUrl });
-      });
-      header.appendChild(storybookLink);
+    if (uiState.devMode) {
+      for (const ext of EXTERNAL_LINKS) {
+        const safeUrl = sanitizeUrl(application[ext.field]);
+        if (!safeUrl) continue;
+        const extLink = document.createElement('a');
+        extLink.href = '#';
+        extLink.className = 'btn-azure-header' + (ext.cls ? ' ' + ext.cls : '');
+        extLink.title = ext.title;
+        extLink.innerHTML = ext.icon;
+        extLink.addEventListener('click', e => {
+          e.preventDefault();
+          chrome.tabs.create({ url: safeUrl });
+        });
+        header.appendChild(extLink);
+      }
     }
     result.appendChild(header);
 
@@ -176,11 +213,11 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     const list = document.createElement('div');
     list.className = 'domain-links';
 
-    const allDomains = customer.domains;
+    const allDomains = application.domains;
     if (allDomains.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'muted';
-      empty.textContent = 'Inga domäner konfigurerade för den här kunden.';
+      empty.textContent = 'Inga domäner konfigurerade för den här applikationen.';
       list.appendChild(empty);
     } else {
       for (const domain of allDomains) {
@@ -213,22 +250,7 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
           `;
         link.insertBefore(dot, link.firstChild);
 
-        // CMS-inloggningsknapp
-        if (customer.cms === 'umbraco' || customer.cms === 'optimizely') {
-          const loginPath = customer.cmsLoginUrl || (customer.cms === 'umbraco' ? '/umbraco' : '/episerver/cms');
-          try {
-            const rawLoginUrl = new URL(loginPath, domain.baseUrl).href;
-            const safeLoginUrl = sanitizeUrl(rawLoginUrl);
-            if (safeLoginUrl) {
-              const loginBtn = document.createElement('button');
-              loginBtn.className = 'btn-cms-login';
-              loginBtn.title = `Logga in (${loginPath})`;
-              loginBtn.innerHTML = getCmsIcon(customer.cms);
-              loginBtn.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeLoginUrl }); });
-              link.appendChild(loginBtn);
-            }
-          } catch { /* ogiltig URL */ }
-        }
+        appendLoginButtons(link, application, domain);
 
         if (!isCurrent) {
           const openLink = () => {
@@ -263,14 +285,13 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     document.getElementById('customer-edit-panel').classList.add('hidden');
   }
 
-  function showCustomerEdit(customer, customers, uiState = {}) {
+  function showCustomerEdit(customer) {
     document.getElementById('settings-list-panel').classList.add('hidden');
     const panel = document.getElementById('customer-edit-panel');
     panel.classList.remove('hidden');
     const editContent = document.getElementById('customer-edit-content');
-    editContent.__uiState = uiState;
     editContent.innerHTML = '';
-    editContent.appendChild(buildCustomerCard(customer, customers, uiState));
+    editContent.appendChild(buildCustomerCard(customer));
   }
 
   function renderSettings(customers, uiState = {}) {
@@ -283,11 +304,12 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     const isSearching = query.length > 0;
 
     const allFiltered = isSearching
-      ? customers.filter(c => c.name.toLowerCase().includes(query))
+      ? customers.filter(c => c.name.toLowerCase().includes(query)
+        || c.applications.some(a => a.name.toLowerCase().includes(query)))
       : customers;
 
     if (customers.length === 0) {
-      list.innerHTML = '<p class="muted">Inga kunder tillagda ännu.</p>';
+      list.innerHTML = '<p class="muted">Inga kunder att visa ännu. Logga in i Hub för att hämta kunderna.</p>';
       return;
     }
 
@@ -327,16 +349,16 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
           : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>`;
         starBtn.addEventListener('click', async e => {
           e.stopPropagation();
-          customer.favorite = !customer.favorite;
-          await saveCustomers(customers);
-          const ui = await getUiState();
+          const makeFavorite = !customer.favorite;
+          await setFavorite(customer.code, makeFavorite);
+          const [ui, updated] = await Promise.all([getUiState(), getCustomers()]);
           // Om detta är den första favoriten som läggs till, återställ dolda-tillståndet
-          const favoriteCount = customers.filter(c => c.favorite).length;
-          if (customer.favorite && favoriteCount === 1 && ui.othersHidden) {
+          const favoriteCount = updated.filter(c => c.favorite).length;
+          if (makeFavorite && favoriteCount === 1 && ui.othersHidden) {
             ui.othersHidden = false;
             await saveUiState(ui);
           }
-          renderSettings(customers, ui);
+          renderSettings(updated, ui);
         });
 
         const nameSpan = document.createElement('span');
@@ -346,85 +368,71 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
 
         const cmsIconSpan = document.createElement('span');
         cmsIconSpan.className = 'customer-cms-icon';
-        const cmsIconHtml = getCmsIcon(customer.cms);
-        cmsIconSpan.innerHTML = cmsIconHtml;
-        if (cmsIconHtml) cmsIconSpan.title = customer.cms === 'umbraco' ? 'Umbraco' : 'Optimizely';
+        const cmsKinds = [...new Set(customer.applications.map(a => a.cms).filter(Boolean))];
+        cmsIconSpan.innerHTML = cmsKinds.map(getCmsIcon).join('');
+        if (cmsKinds.length > 0) {
+          cmsIconSpan.title = cmsKinds.map(k => (k === 'umbraco' ? 'Umbraco' : 'Optimizely')).join(', ');
+        }
 
+        const appCount = customer.applications.length;
         const domainCount = document.createElement('span');
         domainCount.className = 'customer-list-count';
-        domainCount.textContent = `${customer.domains.length} domän${customer.domains.length !== 1 ? 'er' : ''}`;
+        domainCount.textContent = `${appCount} applikation${appCount !== 1 ? 'er' : ''}`;
 
         const editBtn = document.createElement('button');
         editBtn.className = 'btn-edit';
-        editBtn.title = 'Redigera';
+        editBtn.title = 'Egna URL:er';
         editBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
-        editBtn.addEventListener('click', e => { e.stopPropagation(); showCustomerEdit(customer, customers, uiState); });
+        editBtn.addEventListener('click', e => { e.stopPropagation(); showCustomerEdit(customer); });
 
         const expandPanel = document.createElement('div');
         expandPanel.className = 'customer-expand hidden';
 
-        // Azure-rad längst upp i expand-panelen
-        if (customer.azureUrl && uiState.devMode) {
-          const safeAzureUrl = sanitizeUrl(customer.azureUrl);
-          if (safeAzureUrl) {
-            const azureRow = document.createElement('div');
-            azureRow.className = 'expand-domain-link expand-azure-link';
-            azureRow.title = safeAzureUrl;
-            azureRow.innerHTML = `
-              <span class="expand-azure-icon">${AZURE_ICON_SVG}</span>
-              <span class="expand-domain-label" style="color:#0078d4">Azure</span>
-              <span class="expand-domain-url">${escHtml(safeAzureUrl.replace(/^https?:\/\//, ''))}</span>`;
-            azureRow.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeAzureUrl }); });
-            expandPanel.appendChild(azureRow);
-          }
-        }
+        for (const app of customer.applications) {
+          // Ett block per applikation, med en tunn linje längst ner
+          const appBlock = document.createElement('div');
+          appBlock.className = 'expand-app';
+          // Applikationsnamn (rubrik) med cms-ikon
+          const appHeader = document.createElement('div');
+          appHeader.className = 'expand-app-header';
+          const appCms = getCmsIcon(app.cms);
+          appHeader.innerHTML = `<span class="expand-app-name">${escHtml(app.name)}</span>${appCms ? `<span class="customer-cms-icon">${appCms}</span>` : ''}`;
+          appBlock.appendChild(appHeader);
 
-        // Storybook-rad längst upp i expand-panelen
-        if (customer.storybookUrl && uiState.devMode) {
-          const safeStorybookUrl = sanitizeUrl(customer.storybookUrl);
-          if (safeStorybookUrl) {
-            const storybookRow = document.createElement('div');
-            storybookRow.className = 'expand-domain-link expand-azure-link expand-storybook-link';
-            storybookRow.title = safeStorybookUrl;
-            storybookRow.innerHTML = `
-              <span class="expand-azure-icon expand-storybook-icon">${STORYBOOK_ICON_SVG}</span>
-              <span class="expand-domain-label" style="color:#FF4785">Storybook</span>
-              <span class="expand-domain-url">${escHtml(safeStorybookUrl.replace(/^https?:\/\//, ''))}</span>`;
-            storybookRow.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeStorybookUrl }); });
-            expandPanel.appendChild(storybookRow);
-          }
-        }
-
-        for (const domain of customer.domains) {
-          if (domain.devOnly && !uiState.devMode) continue;
-          const link = document.createElement('div');
-          link.className = 'expand-domain-link';
-          const domainSafeColor = sanitizeColor(domain.color);
-          if (domainSafeColor) link.style.setProperty('--domain-color', domainSafeColor);
-          link.innerHTML = `
-            <span class="expand-domain-label" style="${domainSafeColor ? `color:${domainSafeColor}` : ''}">${escHtml(domain.label)}</span>
-            <span class="expand-domain-url">${escHtml(domain.baseUrl.replace(/^https?:\/\//, ''))}</span>`;
-          const safeDomainUrl = sanitizeUrl(domain.baseUrl);
-          if (safeDomainUrl) link.addEventListener('click', () => chrome.tabs.create({ url: safeDomainUrl }));
-
-          // Lägg till inloggningslänk om CMS är valt
-          if (customer.cms === 'umbraco' || customer.cms === 'optimizely') {
-            const loginPath = customer.cmsLoginUrl || (customer.cms === 'umbraco' ? '/umbraco' : '/episerver/cms');
-            try {
-              const rawLoginUrl = new URL(loginPath, domain.baseUrl).href;
-              const safeLoginUrl = sanitizeUrl(rawLoginUrl);
-              if (safeLoginUrl) {
-                const loginBtn = document.createElement('button');
-                loginBtn.className = 'btn-cms-login';
-                loginBtn.title = `Logga in (${escHtml(loginPath)})`;
-                loginBtn.innerHTML = getCmsIcon(customer.cms);
-                loginBtn.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeLoginUrl }); });
-                link.appendChild(loginBtn);
-              }
-            } catch { /* ogiltig URL */ }
+          // Azure-, Storybook-, ClickUp- och Figma-rader (utvecklarläge)
+          if (uiState.devMode) {
+            for (const ext of EXTERNAL_LINKS) {
+              const safeUrl = sanitizeUrl(app[ext.field]);
+              if (!safeUrl) continue;
+              const extRow = document.createElement('div');
+              extRow.className = 'expand-domain-link expand-azure-link';
+              extRow.title = safeUrl;
+              extRow.innerHTML = `
+                <span class="expand-azure-icon">${ext.icon}</span>
+                <span class="expand-domain-label" style="color:${ext.color}">${ext.label}</span>
+                <span class="expand-domain-url">${escHtml(safeUrl.replace(/^https?:\/\//, ''))}</span>`;
+              extRow.addEventListener('click', e => { e.stopPropagation(); chrome.tabs.create({ url: safeUrl }); });
+              appBlock.appendChild(extRow);
+            }
           }
 
-          expandPanel.appendChild(link);
+          for (const domain of app.domains) {
+            if (domain.devOnly && !uiState.devMode) continue;
+            const link = document.createElement('div');
+            link.className = 'expand-domain-link';
+            const domainSafeColor = sanitizeColor(domain.color);
+            if (domainSafeColor) link.style.setProperty('--domain-color', domainSafeColor);
+            link.innerHTML = `
+              <span class="expand-domain-label" style="${domainSafeColor ? `color:${domainSafeColor}` : ''}">${escHtml(domain.label)}</span>
+              <span class="expand-domain-url">${escHtml(domain.baseUrl.replace(/^https?:\/\//, ''))}</span>`;
+            const safeDomainUrl = sanitizeUrl(domain.baseUrl);
+            if (safeDomainUrl) link.addEventListener('click', () => chrome.tabs.create({ url: safeDomainUrl }));
+
+            appendLoginButtons(link, app, domain);
+
+            appBlock.appendChild(link);
+          }
+          expandPanel.appendChild(appBlock);
         }
 
         row.addEventListener('click', () => {
@@ -463,18 +471,17 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
             const allWrappers = [...list.querySelectorAll('.customer-list-wrapper[data-id]')];
             const srcIdx = allWrappers.indexOf(dragSrc);
             const tgtIdx = allWrappers.indexOf(wrapper);
-            // Flytta i customers-arrayen (bara bland favoriter)
-            const favIds = allWrappers.map(w => w.getAttribute('data-id'));
-            const reordered = favIds.map(id => customers.find(c => c.id === id));
-            // Ta bort src och infoga vid target
-            const [moved] = reordered.splice(srcIdx, 1);
-            reordered.splice(tgtIdx, 0, moved);
-            // Bygg ny customers-array: reordnade favoriter + övriga i ursprungsordning
-            const nonFavs = customers.filter(c => !c.favorite);
-            customers.splice(0, customers.length, ...reordered, ...nonFavs);
-            await saveCustomers(customers);
-            const ui = await getUiState();
-            renderSettings(customers, ui);
+            // Ordna om de synliga favoriterna; favoriter som är dolda av en sökning behåller sin plats
+            const visible = allWrappers.map(w => w.getAttribute('data-id'));
+            const [moved] = visible.splice(srcIdx, 1);
+            visible.splice(tgtIdx, 0, moved);
+            const shown = new Set(visible);
+            let next = 0;
+            const order = customers.filter(c => c.favorite)
+              .map(c => (shown.has(c.code) ? visible[next++] : c.code));
+            await setFavoriteOrder(order);
+            const [updated, ui] = await Promise.all([getCustomers(), getUiState()]);
+            renderSettings(updated, ui);
           });
 
           row.appendChild(chevron);
@@ -536,284 +543,85 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     }
   }
 
-  function buildCustomerCard(customer, customers, uiState = {}) {
+  // Detaljvy för en hubbkund: en sektion per applikation. Hubbens domäner är
+  // låsta, egna URL:er går att lägga till, ändra och ta bort per applikation.
+  function buildCustomerCard(customer) {
     const card = document.createElement('div');
     card.className = 'customer-card';
 
-    // Namnrad
     const nameRow = document.createElement('div');
     nameRow.className = 'card-name-row';
 
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.value = customer.name;
-    nameInput.className = 'input-name';
-    nameInput.placeholder = 'Kundnamn';
-    nameInput.addEventListener('change', async () => {
-      customer.name = nameInput.value.trim() || customer.name;
-      await saveCustomers(customers);
-    });
+    const nameEl = document.createElement('span');
+    nameEl.className = 'card-customer-name';
+    nameEl.textContent = customer.name;
+    nameRow.appendChild(nameEl);
 
-    const removeCustomerBtn = document.createElement('button');
-    removeCustomerBtn.textContent = '×';
-    removeCustomerBtn.className = 'btn-remove-customer';
-    removeCustomerBtn.title = 'Ta bort kund';
-    removeCustomerBtn.addEventListener('click', async () => {
-      if (!await showConfirm(`Ta bort kunden "${customer.name}"?`, 'Ta bort')) return;
-      const idx = customers.indexOf(customer);
-      if (idx > -1) customers.splice(idx, 1);
-      await saveCustomers(customers);
-      renderSettings(customers);
-    });
-
-    nameRow.appendChild(nameInput);
-    nameRow.appendChild(removeCustomerBtn);
+    const hubTag = document.createElement('span');
+    hubTag.className = 'hub-tag';
+    hubTag.title = 'Kunden, applikationerna och deras Hub-länkar hanteras i Hub och går inte att ändra här';
+    hubTag.innerHTML = `${LOCK_ICON_SVG}<span>Hub</span>`;
+    nameRow.appendChild(hubTag);
     card.appendChild(nameRow);
 
-    // CMS-väljare (popup-stil, som färgväljaren)
-    const cmsWrap = document.createElement('div');
-    cmsWrap.className = 'cms-wrap';
-
-    const cmsPickerBtn = document.createElement('button');
-    cmsPickerBtn.type = 'button';
-    cmsPickerBtn.className = 'cms-picker-btn';
-    cmsPickerBtn.title = 'Välj CMS';
-
-    function updateCmsPickerBtn() {
-      const icon = getCmsIcon(customer.cms);
-      cmsPickerBtn.innerHTML = icon
-        ? `<span class="cms-picker-icon">${icon}</span>`
-        : `<span class="cms-picker-empty">CMS</span><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4l3 3 3-3"/></svg>`;
-      cmsPickerBtn.title = customer.cms
-        ? (customer.cms === 'umbraco' ? 'Umbraco' : 'Optimizely')
-        : 'Välj CMS';
+    if (customer.applications.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'muted';
+      empty.textContent = 'Kunden har inga applikationer i Hub.';
+      card.appendChild(empty);
     }
-    updateCmsPickerBtn();
 
-    const cmsPopup = document.createElement('div');
-    cmsPopup.className = 'cms-popup hidden';
+    for (const app of customer.applications) {
+      const section = document.createElement('div');
+      section.className = 'app-section';
 
-    const cmsPopupOptions = [
-      { value: 'umbraco', label: 'Umbraco', icon: UMBRACO_ICON_SVG },
-      { value: 'optimizely', label: 'Optimizely', icon: OPTIMIZELY_ICON_SVG },
-      { value: null, label: 'Inget CMS', icon: null },
-    ];
-    for (const opt of cmsPopupOptions) {
-      const swatch = document.createElement('button');
-      swatch.type = 'button';
-      swatch.title = opt.label;
-      if (opt.value === null) {
-        swatch.className = 'cms-swatch cms-swatch-none' + (!customer.cms ? ' selected' : '');
-        swatch.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>`;
-      } else {
-        swatch.className = 'cms-swatch' + (customer.cms === opt.value ? ' selected' : '');
-        swatch.innerHTML = opt.icon;
+      const appRow = document.createElement('div');
+      appRow.className = 'app-section-title';
+      const appName = document.createElement('span');
+      appName.textContent = app.name;
+      appRow.appendChild(appName);
+      const cmsIcon = getCmsIcon(app.cms);
+      if (cmsIcon) {
+        const cmsSpan = document.createElement('span');
+        cmsSpan.className = 'customer-cms-icon';
+        cmsSpan.title = app.cms === 'umbraco' ? 'Umbraco' : 'Optimizely';
+        cmsSpan.innerHTML = cmsIcon;
+        appRow.appendChild(cmsSpan);
       }
-      swatch.addEventListener('click', async e => {
-        e.stopPropagation();
-        customer.cms = opt.value;
-        cmsPopup.querySelectorAll('.cms-swatch').forEach(s => s.classList.remove('selected'));
-        swatch.classList.add('selected');
-        updateCmsPickerBtn();
-        cmsPopup.classList.add('hidden');
-        await saveCustomers(customers);
+      section.appendChild(appRow);
+
+      const domainList = document.createElement('div');
+      domainList.className = 'domain-edit-list';
+      for (const domain of app.domains) {
+        domainList.appendChild(buildDomainRow(domain, app, domainList));
+      }
+      section.appendChild(domainList);
+
+      const addDomainBtn = document.createElement('button');
+      addDomainBtn.textContent = '+ Lägg till egen URL';
+      addDomainBtn.className = 'btn-secondary';
+      addDomainBtn.addEventListener('click', async () => {
+        const newDomain = { id: genId(), label: '', baseUrl: '', color: COLORS[0].value, source: 'local' };
+        app.domains.push(newDomain);
+        const row = buildDomainRow(newDomain, app, domainList);
+        domainList.appendChild(row);
+        row.querySelector('input').focus();
+        await saveLocalDomains(app.slug, app.domains);
       });
-      cmsPopup.appendChild(swatch);
+      section.appendChild(addDomainBtn);
+
+      card.appendChild(section);
     }
-
-    cmsPickerBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      document.querySelectorAll('.cms-popup:not(.hidden)').forEach(p => {
-        if (p !== cmsPopup) p.classList.add('hidden');
-      });
-      cmsPopup.classList.toggle('hidden');
-    });
-    document.addEventListener('click', () => cmsPopup.classList.add('hidden'));
-
-    cmsWrap.appendChild(cmsPickerBtn);
-    cmsWrap.appendChild(cmsPopup);
-
-    // Anpassad inloggningssökväg (alltid synlig – funkar även utan valt CMS)
-    const cmsLoginRow = document.createElement('div');
-    cmsLoginRow.className = 'cms-login-url-row';
-    const cmsLoginIcon = document.createElement('span');
-    cmsLoginIcon.className = 'cms-login-url-icon';
-    cmsLoginIcon.innerHTML = getLoginIcon(customer.cms);
-    const cmsLoginInput = document.createElement('input');
-    cmsLoginInput.type = 'text';
-    cmsLoginInput.value = customer.cmsLoginUrl || '';
-    cmsLoginInput.className = 'input-url';
-    cmsLoginInput.placeholder = 'Anpassad inloggningssökväg (t.ex. /util/login.aspx)';
-    cmsLoginInput.addEventListener('change', async () => {
-      const val = cmsLoginInput.value.trim();
-      customer.cmsLoginUrl = val || null;
-      cmsLoginInput.value = val;
-      await saveCustomers(customers);
-    });
-    cmsLoginRow.appendChild(cmsLoginIcon);
-    cmsLoginRow.appendChild(cmsLoginInput);
-    cmsLoginRow.appendChild(cmsWrap);
-    card.appendChild(cmsLoginRow);
-
-    // Uppdatera ikon när CMS byts
-    const origUpdateCmsPickerBtn = updateCmsPickerBtn;
-    function updateCmsPickerBtnAndRow() {
-      origUpdateCmsPickerBtn();
-      cmsLoginIcon.innerHTML = getLoginIcon(customer.cms);
-    }
-    // Ersätt swatch-klick-lyssnare med uppdaterad funktion
-    cmsPopup.querySelectorAll('.cms-swatch').forEach((swatch, i) => {
-      const opt = cmsPopupOptions[i];
-      const old = swatch.cloneNode(true);
-      swatch.parentNode.replaceChild(old, swatch);
-      old.addEventListener('click', async e => {
-        e.stopPropagation();
-        customer.cms = opt.value;
-        cmsPopup.querySelectorAll('.cms-swatch').forEach(s => s.classList.remove('selected'));
-        old.classList.add('selected');
-        updateCmsPickerBtnAndRow();
-        cmsPopup.classList.add('hidden');
-        await saveCustomers(customers);
-      });
-    });
-
-    // Azure-URL rad (alltid synlig i editläge)
-    const azureRow = document.createElement('div');
-    azureRow.className = 'azure-url-row';
-    const azureIconSpan = document.createElement('span');
-    azureIconSpan.className = 'azure-url-icon';
-    azureIconSpan.innerHTML = AZURE_ICON_SVG;
-    const azureUrlInput = document.createElement('input');
-    azureUrlInput.type = 'text';
-    azureUrlInput.value = customer.azureUrl || '';
-    azureUrlInput.className = 'input-url';
-    azureUrlInput.placeholder = 'Azure-URL (t.ex. https://portal.azure.com/#@...)';
-    azureUrlInput.addEventListener('change', async () => {
-      let val = azureUrlInput.value.trim();
-      if (val && !/^https?:\/\//i.test(val)) val = 'https://' + val;
-      customer.azureUrl = val;
-      azureUrlInput.value = val;
-      await saveCustomers(customers);
-    });
-    azureRow.appendChild(azureIconSpan);
-    azureRow.appendChild(azureUrlInput);
-    card.appendChild(azureRow);
-
-    // Storybook-URL rad (alltid synlig i editläge)
-    const storybookRow = document.createElement('div');
-    storybookRow.className = 'azure-url-row storybook-url-row';
-    const storybookIconSpan = document.createElement('span');
-    storybookIconSpan.className = 'azure-url-icon storybook-url-icon';
-    storybookIconSpan.innerHTML = STORYBOOK_ICON_SVG;
-    const storybookUrlInput = document.createElement('input');
-    storybookUrlInput.type = 'text';
-    storybookUrlInput.value = customer.storybookUrl || '';
-    storybookUrlInput.className = 'input-url';
-    storybookUrlInput.placeholder = 'Storybook-URL (t.ex. https://storybook.example.com)';
-    storybookUrlInput.addEventListener('change', async () => {
-      let val = storybookUrlInput.value.trim();
-      if (val && !/^https?:\/\//i.test(val)) val = 'https://' + val;
-      customer.storybookUrl = val;
-      storybookUrlInput.value = val;
-      await saveCustomers(customers);
-    });
-    storybookRow.appendChild(storybookIconSpan);
-    storybookRow.appendChild(storybookUrlInput);
-    card.appendChild(storybookRow);
-
-    // Domänlista
-    const domainList = document.createElement('div');
-    domainList.className = 'domain-edit-list';
-    for (const domain of customer.domains) {
-      domainList.appendChild(buildDomainRow(domain, customer, customers, domainList));
-    }
-    card.appendChild(domainList);
-
-    // Lägg till domän-knapp
-    const addDomainBtn = document.createElement('button');
-    addDomainBtn.textContent = '+ Lägg till domän';
-    addDomainBtn.className = 'btn-secondary';
-    addDomainBtn.addEventListener('click', async () => {
-      const newDomain = { id: genId(), label: '', baseUrl: '', color: COLORS[0].value };
-      customer.domains.push(newDomain);
-      const row = buildDomainRow(newDomain, customer, customers, domainList);
-      domainList.appendChild(row);
-      row.querySelector('input').focus();
-      await saveCustomers(customers);
-    });
-    card.appendChild(addDomainBtn);
 
     return card;
   }
 
-  function buildDomainRow(domain, customer, customers, domainList) {
-    const row = document.createElement('div');
-    row.className = 'domain-edit-row';
+  // Dra och släpp för att ändra ordning. Gäller alla domäner i applikationen,
+  // även Hubs låsta – på så sätt kan egna URL:er läggas bland Hubs eller över/under.
+  function makeDraggable(row, domain, app, domainList) {
     row.draggable = true;
     row.dataset.domainId = domain.id;
 
-    // Drag-handtag
-    const handle = document.createElement('span');
-    handle.className = 'drag-handle';
-    handle.title = 'Dra för att ändra ordning';
-    handle.innerHTML = `<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor"><circle cx="4" cy="3" r="1.5"/><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="8" cy="13" r="1.5"/></svg>`;
-    handle.addEventListener('mousedown', () => { row.draggable = true; });
-
-    const labelInput = document.createElement('input');
-    labelInput.type = 'text';
-    labelInput.value = domain.label;
-    labelInput.className = 'input-label';
-    labelInput.placeholder = 'Name';
-    labelInput.addEventListener('mousedown', () => { row.draggable = false; });
-    labelInput.addEventListener('change', async () => {
-      domain.label = labelInput.value.trim();
-      await saveCustomers(customers);
-    });
-
-    const urlInput = document.createElement('input');
-    urlInput.type = 'text';
-    // Visa bara domänen utan https:// i fältet
-    urlInput.value = domain.baseUrl ? domain.baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
-    urlInput.className = 'input-url';
-    urlInput.placeholder = 'example.com';
-    urlInput.addEventListener('mousedown', () => { row.draggable = false; });
-    urlInput.addEventListener('input', () => {
-      urlInput.classList.remove('input-error');
-      urlInput.title = '';
-    });
-    urlInput.addEventListener('change', async () => {
-      let val = urlInput.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-      if (!val) {
-        domain.baseUrl = '';
-        urlInput.value = '';
-        await saveCustomers(customers);
-        return;
-      }
-      // Validera: bara domän (tillgåter subdomäner och port, inga sökvägar)
-      const domainPattern = /^(localhost|([a-z0-9-]+\.)+[a-z]{2,})(:\d+)?$/i;
-      if (!domainPattern.test(val)) {
-        urlInput.classList.add('input-error');
-        urlInput.title = 'Ange bara domänen, t.ex. dev.example.com eller localhost:5001';
-        return;
-      }
-      domain.baseUrl = 'https://' + val;
-      urlInput.value = val;
-      urlInput.classList.remove('input-error');
-      await saveCustomers(customers);
-    });
-
-    const removeBtn = document.createElement('button');
-    removeBtn.textContent = '×';
-    removeBtn.className = 'btn-remove';
-    removeBtn.title = 'Ta bort domän';
-    removeBtn.addEventListener('click', async () => {
-      const idx = customer.domains.indexOf(domain);
-      if (idx > -1) customer.domains.splice(idx, 1);
-      await saveCustomers(customers);
-      row.remove();
-    });
-
-    // Drag & drop-hantering
     row.addEventListener('dragstart', e => {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', domain.id);
@@ -835,21 +643,137 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
       const toId = domain.id;
       if (fromId === toId) return;
 
-      const fromIdx = customer.domains.findIndex(d => d.id === fromId);
-      const toIdx = customer.domains.findIndex(d => d.id === toId);
+      const fromIdx = app.domains.findIndex(d => d.id === fromId);
+      const toIdx = app.domains.findIndex(d => d.id === toId);
       if (fromIdx === -1 || toIdx === -1) return;
 
       // Flytta i datan
-      const [moved] = customer.domains.splice(fromIdx, 1);
-      customer.domains.splice(toIdx, 0, moved);
-      await saveCustomers(customers);
+      const [moved] = app.domains.splice(fromIdx, 1);
+      app.domains.splice(toIdx, 0, moved);
+      await saveLocalDomains(app.slug, app.domains);
 
       // Rita om listan
       domainList.innerHTML = '';
-      for (const d of customer.domains) {
-        domainList.appendChild(buildDomainRow(d, customer, customers, domainList));
+      for (const d of app.domains) {
+        domainList.appendChild(buildDomainRow(d, app, domainList));
       }
     });
+  }
+
+  const DRAG_HANDLE_SVG = `<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor"><circle cx="4" cy="3" r="1.5"/><circle cx="8" cy="3" r="1.5"/><circle cx="4" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="8" cy="13" r="1.5"/></svg>`;
+
+  // Rad för en domän från Hub: går att flytta, men inte att ändra eller ta bort.
+  function buildHubDomainRow(domain, app, domainList) {
+    const row = document.createElement('div');
+    row.className = 'domain-edit-row readonly';
+
+    const handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.title = 'Dra för att ändra ordning';
+    handle.innerHTML = DRAG_HANDLE_SVG;
+
+    const lock = document.createElement('span');
+    lock.className = 'hub-lock';
+    lock.title = 'Hanteras i Hub';
+    lock.innerHTML = LOCK_ICON_SVG;
+
+    const labelInput = document.createElement('input');
+    labelInput.type = 'text';
+    labelInput.value = domain.label;
+    labelInput.className = 'input-label';
+    labelInput.readOnly = true;
+    labelInput.tabIndex = -1;
+
+    const urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.value = domain.baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    urlInput.className = 'input-url';
+    urlInput.readOnly = true;
+    urlInput.tabIndex = -1;
+
+    const swatch = document.createElement('span');
+    swatch.className = 'color-btn color-btn-static';
+    swatch.style.background = sanitizeColor(domain.color) || COLORS[0].value;
+
+    row.appendChild(handle);
+    row.appendChild(lock);
+    row.appendChild(labelInput);
+    row.appendChild(urlInput);
+    row.appendChild(swatch);
+    makeDraggable(row, domain, app, domainList);
+    return row;
+  }
+
+  function buildDomainRow(domain, app, domainList) {
+    if (domain.source === 'hub') return buildHubDomainRow(domain, app, domainList);
+
+    const save = () => saveLocalDomains(app.slug, app.domains);
+
+    const row = document.createElement('div');
+    row.className = 'domain-edit-row';
+
+    // Drag-handtag
+    const handle = document.createElement('span');
+    handle.className = 'drag-handle';
+    handle.title = 'Dra för att ändra ordning';
+    handle.innerHTML = DRAG_HANDLE_SVG;
+    handle.addEventListener('mousedown', () => { row.draggable = true; });
+
+    const labelInput = document.createElement('input');
+    labelInput.type = 'text';
+    labelInput.value = domain.label;
+    labelInput.className = 'input-label';
+    labelInput.placeholder = 'Name';
+    labelInput.addEventListener('mousedown', () => { row.draggable = false; });
+    labelInput.addEventListener('change', async () => {
+      domain.label = labelInput.value.trim();
+      await save();
+    });
+
+    const urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    // Visa bara domänen utan https:// i fältet
+    urlInput.value = domain.baseUrl ? domain.baseUrl.replace(/^https?:\/\//, '').replace(/\/$/, '') : '';
+    urlInput.className = 'input-url';
+    urlInput.placeholder = 'example.com';
+    urlInput.addEventListener('mousedown', () => { row.draggable = false; });
+    urlInput.addEventListener('input', () => {
+      urlInput.classList.remove('input-error');
+      urlInput.title = '';
+    });
+    urlInput.addEventListener('change', async () => {
+      const val = urlInput.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+      if (!val) {
+        domain.baseUrl = '';
+        urlInput.value = '';
+        await save();
+        return;
+      }
+      // Validera: bara domän (tillåter subdomäner och port, inga sökvägar)
+      const domainPattern = /^(localhost|([a-z0-9-]+\.)+[a-z]{2,})(:\d+)?$/i;
+      if (!domainPattern.test(val)) {
+        urlInput.classList.add('input-error');
+        urlInput.title = 'Ange bara domänen, t.ex. dev.example.com eller localhost:5001';
+        return;
+      }
+      domain.baseUrl = 'https://' + val;
+      urlInput.value = val;
+      urlInput.classList.remove('input-error');
+      await save();
+    });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '×';
+    removeBtn.className = 'btn-remove';
+    removeBtn.title = 'Ta bort egen URL';
+    removeBtn.addEventListener('click', async () => {
+      const idx = app.domains.indexOf(domain);
+      if (idx > -1) app.domains.splice(idx, 1);
+      await save();
+      row.remove();
+    });
+
+    makeDraggable(row, domain, app, domainList);
 
     // Dev-only-knapp
     const devOnlyBtn = document.createElement('button');
@@ -861,7 +785,7 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
       domain.devOnly = !domain.devOnly;
       devOnlyBtn.classList.toggle('active', domain.devOnly);
       devOnlyBtn.title = domain.devOnly ? 'Visa för alla' : 'Dölj för icke-utvecklare';
-      await saveCustomers(customers);
+      await save();
     });
 
     row.appendChild(handle);
@@ -893,7 +817,7 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
         colorPopup.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
         swatch.classList.add('selected');
         colorPopup.classList.add('hidden');
-        await saveCustomers(customers);
+        await save();
       });
       colorPopup.appendChild(swatch);
     }
@@ -919,64 +843,32 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
   }
 
   // ---- Export / Import ----
-  // ---- Färgnamn för export/import ----
-  function colorToExportName(hex) {
-    const idx = COLORS.findIndex(c => c.value === (hex || COLORS[0].value));
-    return idx >= 0 ? idx + 1 : 1;
-  }
-
-  function exportNameToColor(name) {
-    if (name === undefined || name === null || name === '') return COLORS[0].value;
-    // Stödjer både siffra (1) och gammalt format (Färg1)
-    const m = String(name).match(/^(?:[Ff]ärg)?(\d+)$/);
-    if (!m) return COLORS[0].value;
-    return COLORS[parseInt(m[1], 10) - 1]?.value ?? COLORS[0].value;
-  }
-
-  // Konverterar ett råobjekt från importfil till internt format med nya ID:n
-  function normalizeImportCustomer(raw) {
-    return {
-      id: genId(),
-      name: String(raw.name ?? '').trim(),
-      azureUrl: sanitizeUrl(raw.azureUrl),
-      storybookUrl: sanitizeUrl(raw.storybookUrl),
-      ...((['umbraco', 'optimizely', 'episerver'].includes(raw.cms)) ? { cms: raw.cms === 'episerver' ? 'optimizely' : raw.cms } : {}),
-      ...(raw.cmsLoginUrl ? { cmsLoginUrl: String(raw.cmsLoginUrl).trim() } : {}),
-      domains: (Array.isArray(raw.domains) ? raw.domains : []).map(d => ({
-        id: genId(),
-        label: String(d.label ?? '').trim(),
-        baseUrl: sanitizeUrl(d.url ?? d.baseUrl ?? ''),
-        color: exportNameToColor(d.color),
+  // Export: bara användarens egna URL:er (Hub-datat hämtas ju från Hub).
+  // Import: antingen en export av egna URL:er (slås ihop med befintliga) eller
+  // en Hub-fil (version + customers), som läses in som låst reservlista som
+  // används tills Hub går att nå igen.
+  async function exportOwnUrls() {
+    const byCode = await exportLocalUrls();
+    const urls = {};
+    for (const [code, domains] of Object.entries(byCode)) {
+      urls[code] = domains.map(d => ({
+        label: d.label,
+        url: d.baseUrl,
+        color: colorToNumber(d.color),
         ...(d.devOnly ? { devOnly: true } : {}),
-      }))
-    };
-  }
-
-  function exportCustomers(customers) {
-    const exportData = customers.map(c => ({
-      name: c.name,
-      ...(c.azureUrl ? { azureUrl: c.azureUrl } : {}),
-      ...(c.storybookUrl ? { storybookUrl: c.storybookUrl } : {}),
-      ...(c.cms ? { cms: c.cms } : {}),
-      ...(c.cmsLoginUrl ? { cmsLoginUrl: c.cmsLoginUrl } : {}),
-      domains: c.domains.map(d => {
-        const entry = { label: d.label, url: d.baseUrl };
-        entry.color = colorToExportName(d.color);
-        if (d.devOnly) entry.devOnly = true;
-        return entry;
-      })
-    }));
-    const json = JSON.stringify({ version: 3, customers: exportData }, null, 2);
+      }));
+    }
+    const json = JSON.stringify({ version: 1, type: 'sublime-help-own-urls', urls }, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const objUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = objUrl;
-    a.download = 'sublime-help-kunder.json';
+    a.download = 'sublime-help-egna-urler.json';
     a.click();
     URL.revokeObjectURL(objUrl);
   }
 
-  function importCustomers(existingCustomers, onDone) {
+  function importFile(onDone) {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -987,53 +879,30 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
       reader.onload = async () => {
         try {
           // Strippa eventuell BOM
-          const text = reader.result.replace(/^\uFEFF/, '');
+          const text = reader.result.replace(/^﻿/, '');
           const parsed = JSON.parse(text);
-          if (!parsed.version || !Array.isArray(parsed.customers)) {
-            await showAlert('Ogiltig fil – förväntas en Sublime help tool-export.');
+
+          if (parsed?.type === 'sublime-help-own-urls' && parsed.urls && typeof parsed.urls === 'object') {
+            const added = await importLocalUrls(parsed.urls);
+            onDone(`Import klar! ${added} egen${added !== 1 ? 'a' : ''} URL${added !== 1 ? ':er' : ''} lades till.`);
             return;
           }
-          const incoming = parsed.customers.map(normalizeImportCustomer).filter(c => c.name);
-          const hasExisting = existingCustomers.length > 0;
 
-          let replace = false;
-          if (hasExisting) {
-            const choice = await showModal(
-              `Filen innehåller ${incoming.length} kunder.\n\nVill du lägga till dem eller ersätta hela din nuvarande lista?`,
-              [
-                { label: 'Avbryt', primary: false, value: 'cancel' },
-                { label: 'Lägg till', primary: false, value: 'add' },
-                { label: 'Ersätt', primary: true, value: 'replace' },
-              ]
-            );
-            if (choice === 'cancel') return;
-            replace = choice === 'replace';
-          }
-
-          // Spara favoriter från befintlig lista för att återställa efter import
-          const favoriteNames = new Set(existingCustomers.filter(c => c.favorite).map(c => c.name.toLowerCase()));
-
-          let merged;
-          let addedCount;
-          if (replace) {
-            merged = incoming;
-            addedCount = incoming.length;
-          } else {
-            const existingNames = new Set(existingCustomers.map(c => c.name.toLowerCase()));
-            const toAdd = incoming.filter(c => !existingNames.has(c.name.toLowerCase()));
-            merged = [...existingCustomers, ...toAdd];
-            addedCount = toAdd.length;
-          }
-
-          // Återställ favoriter för kunder som fortfarande finns
-          for (const c of merged) {
-            if (favoriteNames.has(c.name.toLowerCase())) {
-              c.favorite = true;
+          if (parsed?.version && Array.isArray(parsed.customers)) {
+            const hubStatus = await getHubStatus();
+            if (hubStatus?.state === 'ok') {
+              const proceed = await showConfirm(
+                'Du är inloggad i Hub och har redan en aktuell lista. Filen används bara som reserv och skrivs över nästa gång Hub hämtas.\n\nLäs in filen ändå?',
+                'Läs in'
+              );
+              if (!proceed) return;
             }
+            const count = await setHubCache(parsed.customers, 'import');
+            onDone(`Reservlistan lästes in med ${count} kund${count !== 1 ? 'er' : ''}.`);
+            return;
           }
 
-          await saveCustomers(merged);
-          onDone(merged, addedCount, replace);
+          await showAlert('Ogiltig fil – förväntas en Hub-export eller en export av egna URL:er.');
         } catch (e) {
           await showAlert('Kunde inte läsa filen. Kontrollera att det är en giltig JSON-fil.\n\nFel: ' + e.message);
         }
@@ -1044,8 +913,77 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     input.click();
   }
 
+  // ---- Hub-status ----
+  function formatTime(ts) {
+    try { return new Date(ts).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' }); } catch { return ''; }
+  }
+
+  // Visas i "unpacked"-läge tills användaren godkänt åtkomst till dev-hubben.
+  async function renderPermissionBanner() {
+    const banner = document.getElementById('hub-banner');
+    const base = await getHubBaseUrl();
+    banner.innerHTML = '';
+    const span = document.createElement('span');
+    span.textContent = `Hub (${new URL(base).host}) kunde inte läsas. Chrome behöver ditt godkännande en gång – klicka på Tillåt.`;
+    const btn = document.createElement('button');
+    btn.className = 'btn-hub-login';
+    btn.textContent = 'Tillåt';
+    const pattern = hubOriginPattern(base);
+    btn.addEventListener('click', () => {
+      // Ska anropas direkt i klickhanteraren, utan await före, annars anser
+      // Chrome att användargesten gått förlorad och nekar tyst.
+      chrome.permissions.request({ origins: [pattern] }).then(async (granted) => {
+        if (!granted) {
+          await showAlert(`Chrome gav inte tillåtelse för ${pattern}.`);
+          return;
+        }
+        await refreshHub();
+        await refreshViews();
+      }).catch(err => showAlert(`Kunde inte be om tillåtelse för ${pattern}:\n${err.message}`));
+    });
+    banner.appendChild(span);
+    banner.appendChild(btn);
+    banner.classList.remove('hidden');
+  }
+
+  function renderHubBanner(status, cache) {
+    const banner = document.getElementById('hub-banner');
+    banner.innerHTML = '';
+    const state = status?.state;
+    const hasList = (cache?.customers?.length ?? 0) > 0;
+    const savedNote = hasList
+      ? ` Visar ${cache.origin === 'import' ? 'importerad reservlista' : 'sparad lista'} (${formatTime(cache.fetchedAt)}).`
+      : '';
+
+    let text = '';
+    let withLogin = false;
+    if (state === 'needsLogin') {
+      text = 'Du är inte inloggad i Hub.' + savedNote;
+      withLogin = true;
+    } else if (state === 'forbidden') {
+      text = 'Du saknar behörighet till Hub (rollen Hub.Reader).' + savedNote;
+    } else if (state === 'offline' || state === 'error') {
+      text = 'Hub kunde inte nås.' + savedNote;
+    } else {
+      banner.classList.add('hidden');
+      return;
+    }
+
+    const span = document.createElement('span');
+    span.textContent = text;
+    banner.appendChild(span);
+    if (withLogin) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-hub-login';
+      btn.textContent = 'Logga in i Hub';
+      btn.addEventListener('click', () => openHubLogin());
+      banner.appendChild(btn);
+    }
+    banner.classList.remove('hidden');
+  }
+
   // ---- Onboarding (visas vid första start) ----
-  function showOnboarding(uiState, customers, tab, activateTab) {
+  function showOnboarding(uiState, activateTab) {
     const app = document.getElementById('app');
     const overlay = document.getElementById('onboarding-overlay');
     const step1 = document.getElementById('onboarding-step-1');
@@ -1058,12 +996,6 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
 
     let selectedDevMode = false;
 
-    function goToStep2(isDev) {
-      selectedDevMode = isDev;
-      step1.classList.add('hidden');
-      step2.classList.remove('hidden');
-    }
-
     async function finishOnboarding() {
       overlay.classList.add('hidden');
       app.classList.remove('onboarding-active');
@@ -1071,28 +1003,25 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
       uiState.setupDone = true;
       await saveUiState(uiState);
       document.getElementById('dev-mode-checkbox').checked = selectedDevMode;
-      const updatedCustomers = await getCustomers();
-      renderSettings(updatedCustomers, uiState);
-      const updatedMatch = tab?.url ? findMatch(updatedCustomers, tab.url) : null;
-      renderHome(updatedMatch, tab?.url ?? '', uiState);
+      await refreshViews();
+    }
+
+    function goToStep2(isDev) {
+      selectedDevMode = isDev;
+      step1.classList.add('hidden');
+      step2.classList.remove('hidden');
+      // Redan inloggad i Hub? Då behövs inget mer – kunderna finns.
+      refreshHub().then(state => {
+        if (state === 'ok' && !overlay.classList.contains('hidden')) finishOnboarding();
+      });
     }
 
     document.getElementById('onboarding-dev-yes').onclick = () => goToStep2(true);
     document.getElementById('onboarding-dev-no').onclick = () => goToStep2(false);
 
-    document.getElementById('onboarding-import-btn').onclick = async () => {
+    document.getElementById('onboarding-login-btn').onclick = async () => {
       await finishOnboarding();
-      const existing = await getCustomers();
-      importCustomers(existing, async (merged) => {
-        const ui = await getUiState();
-        renderSettings(merged, ui);
-        const updatedMatch = tab?.url ? findMatch(merged, tab.url) : null;
-        renderHome(updatedMatch, tab?.url ?? '', ui);
-        activateTab(
-          document.getElementById('tab-settings'),
-          document.getElementById('view-settings')
-        );
-      });
+      openHubLogin();
     };
 
     document.getElementById('onboarding-skip-btn').onclick = async () => {
@@ -1120,17 +1049,17 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
       activeView.classList.remove('hidden');
     }
 
+    // Stänger detaljvyn och tar bort egna URL:er som lämnats tomma.
     async function cleanupAndCloseEdit() {
       const customers = await getCustomers();
-      let changed = false;
       for (const c of customers) {
-        const before = c.domains.length;
-        c.domains = c.domains.filter(d => d.baseUrl && d.baseUrl.trim());
-        if (c.domains.length !== before) changed = true;
+        for (const app of c.applications) {
+          const kept = app.domains.filter(d => d.source === 'hub' || (d.baseUrl && d.baseUrl.trim()));
+          if (kept.length !== app.domains.length) await saveLocalDomains(app.slug, kept);
+        }
       }
-      if (changed) await saveCustomers(customers);
-      const ui = await getUiState();
-      renderSettings(customers, ui);
+      showSettingsList();
+      await refreshViews();
     }
 
     btnSettings.addEventListener('click', () => activateTab(btnSettings, viewSettings));
@@ -1264,34 +1193,79 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
     });
   }
 
+  // ---- Uppdatera alla vyer från lagrade data ----
+  let currentTab = null;
+
+  async function refreshViews() {
+    const [customers, ui, status, cache] = await Promise.all([
+      getCustomers(), getUiState(), getHubStatus(), getHubCache(),
+    ]);
+    renderHubBanner(status, cache);
+    // Behörighetsbanner bara om hämtningen faktiskt misslyckats och behörigheten saknas
+    if (status?.state !== 'ok' && !(await hasHubPermission())) await renderPermissionBanner();
+    renderHome(currentTab?.url ? findMatch(customers, currentTab.url) : null, currentTab?.url ?? '', ui);
+    // Rita inte om listan över en öppen detaljvy
+    if (document.getElementById('customer-edit-panel').classList.contains('hidden')) {
+      renderSettings(customers, ui);
+    }
+    return customers;
+  }
+
+  // Aktiv flik. I sidopanelen finns inget "nuvarande fönster" som i en popup,
+  // så senast fokuserade fönstret används i första hand.
+  async function getActiveTab() {
+    let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.url) [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab;
+  }
+
+  // Sidopanelen ligger kvar öppen medan man byter flik och navigerar, så den
+  // måste följa med. (Popupen stängs av sig själv, så där gör det ingen skada.)
+  function watchActiveTab() {
+    const update = async (tab) => {
+      if (!tab?.url) return;
+      if (currentTab?.windowId !== undefined && tab.windowId !== currentTab.windowId) return;
+      if (tab.id === currentTab?.id && tab.url === currentTab?.url) return;
+      currentTab = tab;
+      await refreshViews();
+    };
+
+    chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+      try { await update(await chrome.tabs.get(tabId)); } catch { /* fliken hann stängas */ }
+    });
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      if (tab.active && (changeInfo.url || changeInfo.status === 'complete')) update(tab);
+    });
+  }
+
   // ---- Init ----
   async function init() {
     const { cleanupAndCloseEdit, activateTab, btnHome, viewHome } = setupTabs();
 
-    const [customers, [tab], uiState, isDevelopmentInstall] = await Promise.all([
-      getCustomers(),
-      chrome.tabs.query({ active: true, currentWindow: true }),
+    const [tab, uiState, isDevelopmentInstall] = await Promise.all([
+      getActiveTab(),
       getUiState(),
       isExtensionInDevelopmentMode(),
     ]);
+    currentTab = tab;
+    watchActiveTab();
 
     setupDockToggle(tab);
     setupThemeSelect(uiState);
 
-    // Startsida
+    // Visa det som finns sparat direkt, hämta sedan färsk lista från Hub
+    const customers = await refreshViews();
     const match = tab?.url ? findMatch(customers, tab.url) : null;
-    renderHome(match, tab?.url ?? '', uiState);
 
-    // Inställningar
-    renderSettings(customers, uiState);
-
-    // Onboarding vid första start (endast om ingen kund är importerad)
+    // Onboarding vid första start (endast om ingen kundlista finns sparad)
     if (!uiState.setupDone && customers.length === 0) {
-      showOnboarding(uiState, customers, tab, activateTab);
+      showOnboarding(uiState, activateTab);
     } else if (!match) {
       // Ingen matchning – gå direkt till Kunder-fliken
       activateTab(document.getElementById('tab-settings'), document.getElementById('view-settings'));
     }
+
+    refreshHub().then(refreshViews);
 
     // Utvecklarläge-checkbox
     const devCb = document.getElementById('dev-mode-checkbox');
@@ -1309,35 +1283,65 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
       const ui = await getUiState();
       ui.devMode = devCb.checked;
       await saveUiState(ui);
-      const updatedCustomers = await getCustomers();
-      const updatedMatch = tab?.url ? findMatch(updatedCustomers, tab.url) : null;
-      renderHome(updatedMatch, tab?.url ?? '', ui);
-      renderSettings(updatedCustomers, ui);
+      await refreshViews();
       updateDeveloperUi(ui);
     });
 
+    // Hub-adress (bara när tillägget körs lokalt som "unpacked")
+    if (isDevelopmentInstall) {
+      const hubUrlSection = document.getElementById('hub-url-section');
+      const hubUrlInput = document.getElementById('hub-url-input');
+      hubUrlSection.classList.remove('hidden');
+      hubUrlInput.value = await getHubUrlOverride();
+
+      document.getElementById('hub-url-save').addEventListener('click', async () => {
+        const val = hubUrlInput.value.trim();
+        if (val) {
+          let origin;
+          try { origin = new URL(val); } catch { origin = null; }
+          if (!origin || !/^https?:$/.test(origin.protocol)) {
+            await showAlert('Ange en giltig adress, t.ex. https://hub.dev.sublime.se');
+            return;
+          }
+          // Måste ligga först i klickhanteraren (kräver användargest). Porten
+          // ignoreras i behörigheter, så localhost:1234 täcks av localhost.
+          let granted = false;
+          try {
+            granted = await chrome.permissions.request({ origins: [`${origin.protocol}//${origin.hostname}/*`] });
+          } catch (e) {
+            await showAlert('Adressen får inte användas: ' + e.message + '\n\nTillåtna: hub.dev.sublime.se och localhost.');
+            return;
+          }
+          if (!granted) return;
+        }
+        await setHubUrlOverride(val);
+        const state = await refreshHub();
+        await refreshViews();
+        await showAlert(val ? `Hub-adress sparad (${state}).` : 'Använder hub.dev.sublime.se.');
+      });
+    }
+
     resetBtn.addEventListener('click', async () => {
-      const confirmed = await showConfirm('Återställ appen? Detta rensar alla kunder och startar onboarding igen.', 'Återställ');
+      const confirmed = await showConfirm('Återställ appen? Detta rensar egna URL:er, favoriter och sparad Hub-lista, och startar onboarding igen.', 'Återställ');
       if (!confirmed) return;
 
-      await clearAllCustomers();
-      await chrome.storage.local.remove(UI_KEY);
+      await clearLocalData();
+      await chrome.storage.local.remove([UI_KEY, HUB_CACHE_KEY, HUB_STATUS_KEY]);
 
       const clearedUi = {};
       document.getElementById('customers-search').value = '';
-      renderSettings([], clearedUi);
-      renderHome(null, tab?.url ?? '', clearedUi);
+      await refreshViews();
       updateDeveloperUi(clearedUi);
       activateTab(document.getElementById('tab-home'), document.getElementById('view-home'));
-      showOnboarding(clearedUi, [], tab, activateTab);
+      showOnboarding(clearedUi, activateTab);
     });
 
-    // Tillbaka-knapp i edit-vy
+    // Tillbaka-knapp i detaljvyn
     document.getElementById('back-btn').addEventListener('click', async () => {
       await cleanupAndCloseEdit();
     });
 
-    // Sidor-fliken: stäng edit om öppet
+    // Sidor-fliken: stäng detaljvyn om öppen
     btnHome.addEventListener('click', async () => {
       const editPanel = document.getElementById('customer-edit-panel');
       if (!editPanel.classList.contains('hidden')) {
@@ -1348,54 +1352,28 @@ import { getCustomers, saveCustomers, clearAllCustomers, genId } from '../shared
 
     // Export
     document.getElementById('export-btn').addEventListener('click', async () => {
-      const customers = await getCustomers();
-      if (customers.length === 0) {
-        await showAlert('Inga kunder att exportera.');
+      const own = await exportLocalUrls();
+      if (Object.keys(own).length === 0) {
+        await showAlert('Du har inga egna URL:er att exportera.');
         return;
       }
-      exportCustomers(customers);
+      exportOwnUrls();
     });
 
     // Import
-    document.getElementById('import-btn').addEventListener('click', async () => {
-      const existing = await getCustomers();
-      importCustomers(existing, async (merged, addedCount, replaced) => {
-        const ui = await getUiState();
-        renderSettings(merged, ui);
-        if (replaced) {
-          await showAlert(`Import klar! Listan ersattes med ${addedCount} kund${addedCount !== 1 ? 'er' : ''}.`);
-        } else {
-          await showAlert(`Import klar! ${addedCount} ny${addedCount !== 1 ? 'a' : ''} kund${addedCount !== 1 ? 'er' : ''} lades till.`);
-        }
+    document.getElementById('import-btn').addEventListener('click', () => {
+      importFile(async (message) => {
+        await refreshViews();
+        await showAlert(message);
       });
     });
 
-    // Lägg till kund
+    // Sök bland kunder
     document.getElementById('customers-search').addEventListener('input', async () => {
-      const updated = await getCustomers();
-      const ui = await getUiState();
+      const [updated, ui] = await Promise.all([getCustomers(), getUiState()]);
       renderSettings(updated, ui);
-    });
-
-    document.getElementById('add-customer-btn').addEventListener('click', async () => {
-      const updated = await getCustomers();
-      const newCustomer = { id: genId(), name: 'Ny kund', azureUrl: '', domains: [] };
-      updated.push(newCustomer);
-      await saveCustomers(updated);
-      const ui = await getUiState();
-      renderSettings(updated, ui);
-      showCustomerEdit(newCustomer, updated, ui);
-
-      // Fokusera på namnfältet direkt
-      const cards = document.querySelectorAll('.customer-card');
-      const lastCard = cards[cards.length - 1];
-      if (lastCard) {
-        lastCard.scrollIntoView({ behavior: 'smooth' });
-        lastCard.querySelector('.input-name')?.select();
-      }
     });
   }
 
   document.addEventListener('DOMContentLoaded', init);
 })();
-

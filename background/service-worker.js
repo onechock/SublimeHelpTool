@@ -1,9 +1,12 @@
 // service-worker.js – Sublime help tool
 // Gråar ut ikonen om ingen kund matchar, färgar den blå om match finns.
 
-import { getCustomers } from '../shared/storage.js';
+import { getCustomers, HUB_CACHE_KEY } from '../shared/storage.js';
+import { refreshHub } from '../shared/hub.js';
 
 const UI_KEY = 'sublimeHelp_ui';
+const HUB_REFRESH_ALARM = 'hubRefresh';
+const HUB_REFRESH_MINUTES = 30;
 
 // Returnerar host inkl. port (t.ex. "localhost:5001") för korrekt matchning
 function getHostname(url) {
@@ -55,14 +58,14 @@ async function updateIcon(tabId, tabUrl) {
   const customers = await getCustomers();
   const tabHost = getHostname(tabUrl);
 
-  // Hitta matchande kund och räkna övriga domäner
+  // Hitta matchande applikation och räkna dess övriga domäner
   let otherCount = 0;
   let matched = false;
   for (const customer of customers) {
-    const match = customer.domains.find(d => getHostname(d.baseUrl) === tabHost);
-    if (match) {
+    const app = customer.applications.find(a => a.domains.some(d => getHostname(d.baseUrl) === tabHost));
+    if (app) {
       matched = true;
-      otherCount = customer.domains.length - 1;
+      otherCount = app.domains.length - 1;
       break;
     }
   }
@@ -90,15 +93,30 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }
 });
 
-// Första start
+// Hämtar kunder från hubben regelbundet, så att listan är färsk även när
+// popupen inte har öppnats.
+function scheduleHubRefresh() {
+  chrome.alarms.create(HUB_REFRESH_ALARM, { periodInMinutes: HUB_REFRESH_MINUTES });
+  refreshHub();
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   console.log('Sublime help tool installerat!');
+  scheduleHubRefresh();
 });
 
-// Kunddata har synkats in (t.ex. från en annan profil/dator) – uppdatera
-// badge/ikon på alla öppna flikar så det syns direkt utan att öppna popupen.
+chrome.runtime.onStartup.addListener(scheduleHubRefresh);
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === HUB_REFRESH_ALARM) refreshHub();
+});
+
+// Kunddata har ändrats (egna URL:er synkade från en annan profil/dator, eller
+// ny lista från hubben) – uppdatera badge/ikon på alla öppna flikar så det
+// syns direkt utan att öppna popupen.
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'sync') return;
+  const hubListChanged = areaName === 'local' && HUB_CACHE_KEY in changes;
+  if (areaName !== 'sync' && !hubListChanged) return;
   chrome.tabs.query({}, tabs => {
     for (const tab of tabs) {
       if (tab.id !== undefined) updateIcon(tab.id, tab.url);
@@ -133,8 +151,15 @@ async function getOmniboxData() {
   return { customers, devMode: !!(r[UI_KEY]?.devMode) };
 }
 
-function eligibleDomains(customer, devMode) {
-  return customer.domains.filter(d => d.baseUrl && (devMode || !d.devOnly));
+function eligibleDomains(app, devMode) {
+  return app.domains.filter(d => d.baseUrl && (devMode || !d.devOnly));
+}
+
+// Träff på kundnamn ger alla kundens applikationer; träff på applikationsnamn
+// ger bara de applikationerna.
+function matchingApplications(customer, query) {
+  if (customer.name.toLowerCase().includes(query)) return customer.applications;
+  return customer.applications.filter(a => a.name.toLowerCase().includes(query));
 }
 
 chrome.omnibox.onInputChanged.addListener(async (text, suggest) => {
@@ -147,7 +172,7 @@ chrome.omnibox.onInputChanged.addListener(async (text, suggest) => {
     return;
   }
 
-  const matches = customers.filter(c => c.name.toLowerCase().includes(query));
+  const matches = customers.filter(c => matchingApplications(c, query).length > 0);
   if (matches.length === 0) {
     chrome.omnibox.setDefaultSuggestion({ description: `Ingen kund matchar "${escapeXml(text)}"` });
     suggest([]);
@@ -163,12 +188,15 @@ chrome.omnibox.onInputChanged.addListener(async (text, suggest) => {
   const suggestions = [];
   outer:
   for (const customer of matches) {
-    for (const domain of eligibleDomains(customer, devMode)) {
-      if (suggestions.length >= MAX_OMNIBOX_SUGGESTIONS) break outer;
-      suggestions.push({
-        content: `${customer.id}|${domain.id}`,
-        description: `<match>${escapeXml(customer.name)}</match> – ${escapeXml(domain.label || domain.baseUrl)} <dim>${escapeXml(domain.baseUrl.replace(/^https?:\/\//, ''))}</dim>`,
-      });
+    for (const app of matchingApplications(customer, query)) {
+      const appLabel = customer.applications.length > 1 ? ` – ${escapeXml(app.name)}` : '';
+      for (const domain of eligibleDomains(app, devMode)) {
+        if (suggestions.length >= MAX_OMNIBOX_SUGGESTIONS) break outer;
+        suggestions.push({
+          content: `${customer.id}|${app.slug}|${domain.id}`,
+          description: `<match>${escapeXml(customer.name)}</match>${appLabel} – ${escapeXml(domain.label || domain.baseUrl)} <dim>${escapeXml(domain.baseUrl.replace(/^https?:\/\//, ''))}</dim>`,
+        });
+      }
     }
   }
 
@@ -180,19 +208,25 @@ chrome.omnibox.onInputEntered.addListener(async (content, disposition) => {
 
   let targetUrl = null;
 
-  const idMatch = content.match(/^([a-z0-9]+)\|([a-z0-9]+)$/i);
+  const idMatch = content.match(/^([^|]+)\|([^|]+)\|([^|]+)$/);
   if (idMatch) {
-    const [, customerId, domainId] = idMatch;
+    const [, customerId, slug, domainId] = idMatch;
     const customer = customers.find(c => c.id === customerId);
-    const domain = customer?.domains.find(d => d.id === domainId);
+    const app = customer?.applications.find(a => a.slug === slug);
+    const domain = app?.domains.find(d => d.id === domainId);
     if (domain?.baseUrl) targetUrl = domain.baseUrl;
   }
 
   if (!targetUrl) {
     const query = content.trim().toLowerCase();
-    const customer = query ? customers.find(c => c.name.toLowerCase().includes(query)) : null;
-    const domain = customer ? eligibleDomains(customer, devMode)[0] : null;
-    if (domain) targetUrl = domain.baseUrl;
+    for (const customer of query ? customers : []) {
+      const domain = matchingApplications(customer, query)
+        .flatMap(app => eligibleDomains(app, devMode))[0];
+      if (domain) {
+        targetUrl = domain.baseUrl;
+        break;
+      }
+    }
   }
 
   const safeUrl = sanitizeUrl(targetUrl);

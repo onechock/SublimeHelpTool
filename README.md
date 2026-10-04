@@ -1,5 +1,11 @@
 # SublimeHelpTool
 
+Kunder, miljöer och länkar hämtas från Sublime Hub (`/api/v1/browser-links`) med medarbetarens vanliga Hub-inloggning. Hubbens data är skrivskyddad i pluginet; användaren kan lägga till egna URL:er på kunderna.
+
+- Inte inloggad: popupen visar "Logga in i Hub" och den senast sparade listan.
+- Lokal körning (laddat som "unpacked"): använder hub.dev.sublime.se. Klicka på "Tillåt" i popupen första gången. Under Inställningar kan du i stället ange en egen adress, t.ex. Aspire-adressen på localhost.
+- Reserv: en Hub-fil ("JSON för webbläsarpluginer") kan importeras under Inställningar och används tills Hub går att nå.
+
 ## Utveckling
 
 ```bash
